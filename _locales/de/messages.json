@@ -1,0 +1,135 @@
+{
+  "extensionName": {
+    "message": "FolderSync"
+  },
+  "extensionDescription": {
+    "message": "Ordner zwischen zwei E-Mail-Konten synchronisieren"
+  },
+  "btnNewSync": {
+    "message": "+ Neue Synchronisation"
+  },
+  "emptyState": {
+    "message": "Noch keine Synchronisationen konfiguriert."
+  },
+  "labelName": {
+    "message": "Name"
+  },
+  "namePlaceholder": {
+    "message": "z.B. Arbeit ↔ Privat"
+  },
+  "folderA": {
+    "message": "Ordner A"
+  },
+  "folderB": {
+    "message": "Ordner B"
+  },
+  "labelAccount": {
+    "message": "Account"
+  },
+  "labelFolder": {
+    "message": "Ordner"
+  },
+  "selectAccount": {
+    "message": "-- Account wählen --"
+  },
+  "selectFolder": {
+    "message": "-- Ordner wählen --"
+  },
+  "direction": {
+    "message": "Richtung"
+  },
+  "directionBoth": {
+    "message": "A ↔ B (Bidirektional)"
+  },
+  "directionAtoB": {
+    "message": "A → B (Nur A nach B)"
+  },
+  "directionBtoA": {
+    "message": "B → A (Nur B nach A)"
+  },
+  "autoSync": {
+    "message": "Automatische Synchronisation"
+  },
+  "autoSyncEvery": {
+    "message": "Automatisch alle"
+  },
+  "minutes": {
+    "message": "Minuten"
+  },
+  "btnCancel": {
+    "message": "Abbrechen"
+  },
+  "btnSave": {
+    "message": "Speichern"
+  },
+  "statusReady": {
+    "message": "Bereit"
+  },
+  "statusSyncing": {
+    "message": "Synchronisiere..."
+  },
+  "lastSync": {
+    "message": "Letzte Sync:"
+  },
+  "errorCount": {
+    "message": "$COUNT$ Fehler",
+    "placeholders": {
+      "count": {
+        "content": "$1"
+      }
+    }
+  },
+  "unnamed": {
+    "message": "Unbenannt"
+  },
+  "btnStartSync": {
+    "message": "Sync starten"
+  },
+  "btnEdit": {
+    "message": "Bearbeiten"
+  },
+  "btnDelete": {
+    "message": "Löschen"
+  },
+  "confirmDelete": {
+    "message": "Synchronisation \"$NAME$\" wirklich löschen?",
+    "placeholders": {
+      "name": {
+        "content": "$1"
+      }
+    }
+  },
+  "alertSelectBothFolders": {
+    "message": "Bitte beide Ordner auswählen"
+  },
+  "errorSyncRunning": {
+    "message": "Sync läuft bereits"
+  },
+  "errorNoFolders": {
+    "message": "Keine Ordner konfiguriert"
+  },
+  "aboutDescription": {
+    "message": "FolderSync synchronisiert E-Mail-Ordner zwischen verschiedenen Accounts. Nachrichten werden anhand ihrer eindeutigen Message-ID verglichen und fehlende Nachrichten in den jeweils anderen Ordner kopiert."
+  },
+  "aboutFeatures": {
+    "message": "Funktionen"
+  },
+  "aboutFeature1": {
+    "message": "Bidirektionale und einseitige Synchronisation"
+  },
+  "aboutFeature2": {
+    "message": "Mehrere Sync-Konfigurationen möglich"
+  },
+  "aboutFeature3": {
+    "message": "Automatische Synchronisation in konfigurierbaren Intervallen"
+  },
+  "aboutFeature4": {
+    "message": "Unterstützt IMAP, POP3 und andere Account-Typen"
+  },
+  "aboutLicense": {
+    "message": "Lizenz"
+  },
+  "aboutAuthor": {
+    "message": "Autor"
+  }
+}

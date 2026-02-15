@@ -1,0 +1,135 @@
+{
+  "extensionName": {
+    "message": "FolderSync"
+  },
+  "extensionDescription": {
+    "message": "Synchronize folders between two email accounts"
+  },
+  "btnNewSync": {
+    "message": "+ New Synchronization"
+  },
+  "emptyState": {
+    "message": "No synchronizations configured yet."
+  },
+  "labelName": {
+    "message": "Name"
+  },
+  "namePlaceholder": {
+    "message": "e.g. Work ↔ Personal"
+  },
+  "folderA": {
+    "message": "Folder A"
+  },
+  "folderB": {
+    "message": "Folder B"
+  },
+  "labelAccount": {
+    "message": "Account"
+  },
+  "labelFolder": {
+    "message": "Folder"
+  },
+  "selectAccount": {
+    "message": "-- Select account --"
+  },
+  "selectFolder": {
+    "message": "-- Select folder --"
+  },
+  "direction": {
+    "message": "Direction"
+  },
+  "directionBoth": {
+    "message": "A ↔ B (Bidirectional)"
+  },
+  "directionAtoB": {
+    "message": "A → B (A to B only)"
+  },
+  "directionBtoA": {
+    "message": "B → A (B to A only)"
+  },
+  "autoSync": {
+    "message": "Automatic Synchronization"
+  },
+  "autoSyncEvery": {
+    "message": "Automatically every"
+  },
+  "minutes": {
+    "message": "minutes"
+  },
+  "btnCancel": {
+    "message": "Cancel"
+  },
+  "btnSave": {
+    "message": "Save"
+  },
+  "statusReady": {
+    "message": "Ready"
+  },
+  "statusSyncing": {
+    "message": "Syncing..."
+  },
+  "lastSync": {
+    "message": "Last sync:"
+  },
+  "errorCount": {
+    "message": "$COUNT$ errors",
+    "placeholders": {
+      "count": {
+        "content": "$1"
+      }
+    }
+  },
+  "unnamed": {
+    "message": "Unnamed"
+  },
+  "btnStartSync": {
+    "message": "Start sync"
+  },
+  "btnEdit": {
+    "message": "Edit"
+  },
+  "btnDelete": {
+    "message": "Delete"
+  },
+  "confirmDelete": {
+    "message": "Really delete synchronization \"$NAME$\"?",
+    "placeholders": {
+      "name": {
+        "content": "$1"
+      }
+    }
+  },
+  "alertSelectBothFolders": {
+    "message": "Please select both folders"
+  },
+  "errorSyncRunning": {
+    "message": "Sync already running"
+  },
+  "errorNoFolders": {
+    "message": "No folders configured"
+  },
+  "aboutDescription": {
+    "message": "FolderSync synchronizes email folders between different accounts. Messages are compared by their unique Message-ID and missing messages are copied to the other folder."
+  },
+  "aboutFeatures": {
+    "message": "Features"
+  },
+  "aboutFeature1": {
+    "message": "Bidirectional and one-way synchronization"
+  },
+  "aboutFeature2": {
+    "message": "Support for multiple sync configurations"
+  },
+  "aboutFeature3": {
+    "message": "Automatic synchronization at configurable intervals"
+  },
+  "aboutFeature4": {
+    "message": "Works with IMAP, POP3 and other account types"
+  },
+  "aboutLicense": {
+    "message": "License"
+  },
+  "aboutAuthor": {
+    "message": "Author"
+  }
+}

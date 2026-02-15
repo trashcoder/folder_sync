@@ -1,0 +1,79 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <link rel="stylesheet" href="popup.css">
+</head>
+<body>
+  <h1>FolderSync</h1>
+
+  <!-- List View -->
+  <div id="listView">
+    <button id="btnAdd" class="btn btn-primary btn-full" data-i18n="btnNewSync"></button>
+    <div id="syncList" class="sync-list"></div>
+    <div id="emptyState" class="empty-state" data-i18n="emptyState"></div>
+  </div>
+
+  <!-- Edit View -->
+  <div id="editView" class="hidden">
+    <div class="field" style="margin-bottom: 8px;">
+      <label for="syncName" data-i18n="labelName"></label>
+      <input type="text" id="syncName" data-i18n-placeholder="namePlaceholder" class="text-input">
+    </div>
+
+    <section class="config-section">
+      <h2 data-i18n="folderA"></h2>
+      <div class="field">
+        <label for="accountA" data-i18n="labelAccount"></label>
+        <select id="accountA"><option value="" data-i18n="selectAccount"></option></select>
+      </div>
+      <div class="field">
+        <label for="folderA" data-i18n="labelFolder"></label>
+        <select id="folderA" disabled><option value="" data-i18n="selectFolder"></option></select>
+      </div>
+    </section>
+
+    <section class="config-section">
+      <h2 data-i18n="folderB"></h2>
+      <div class="field">
+        <label for="accountB" data-i18n="labelAccount"></label>
+        <select id="accountB"><option value="" data-i18n="selectAccount"></option></select>
+      </div>
+      <div class="field">
+        <label for="folderB" data-i18n="labelFolder"></label>
+        <select id="folderB" disabled><option value="" data-i18n="selectFolder"></option></select>
+      </div>
+    </section>
+
+    <section class="config-section">
+      <h2 data-i18n="direction"></h2>
+      <div class="field">
+        <select id="syncDirection">
+          <option value="both" data-i18n="directionBoth"></option>
+          <option value="aToB" data-i18n="directionAtoB"></option>
+          <option value="bToA" data-i18n="directionBtoA"></option>
+        </select>
+      </div>
+    </section>
+
+    <section class="auto-sync-section">
+      <h2 data-i18n="autoSync"></h2>
+      <div class="field-row">
+        <label>
+          <input type="checkbox" id="autoSyncEnabled">
+          <span data-i18n="autoSyncEvery"></span>
+        </label>
+        <input type="number" id="autoSyncInterval" value="5" min="1" max="1440" class="interval-input">
+        <span data-i18n="minutes"></span>
+      </div>
+    </section>
+
+    <section class="controls">
+      <button id="btnCancel" class="btn btn-secondary" data-i18n="btnCancel"></button>
+      <button id="btnSave" class="btn btn-primary" data-i18n="btnSave"></button>
+    </section>
+  </div>
+
+  <script src="popup.js"></script>
+</body>
+</html>
