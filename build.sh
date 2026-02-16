@@ -2,7 +2,7 @@
 set -e
 
 VERSION=$(grep '"version"' manifest.json | head -1 | sed 's/.*"version": *"\([^"]*\)".*/\1/')
-OUTPUT="foldersync-${VERSION}.xpi"
+OUTPUT="build/foldersync-${VERSION}.xpi"
 
 rm -f "$OUTPUT"
 
