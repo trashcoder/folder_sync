@@ -15,6 +15,41 @@ function getSyncState(syncId) {
   return syncStates.get(syncId);
 }
 
+// --- Log persistence ---
+
+const MAX_LOG_ENTRIES = 200;
+
+async function appendLog(syncId, level, message) {
+  try {
+    const key = `syncLog_${syncId}`;
+    const data = await messenger.storage.local.get(key);
+    const entries = data[key] || [];
+    entries.push({ ts: new Date().toISOString(), level, message });
+    if (entries.length > MAX_LOG_ENTRIES) entries.splice(0, entries.length - MAX_LOG_ENTRIES);
+    await messenger.storage.local.set({ [key]: entries });
+  } catch (e) {
+    // ignore logging errors
+  }
+}
+
+async function loadLog(syncId) {
+  try {
+    const key = `syncLog_${syncId}`;
+    const data = await messenger.storage.local.get(key);
+    return data[key] || [];
+  } catch (e) {
+    return [];
+  }
+}
+
+async function clearLog(syncId) {
+  try {
+    await messenger.storage.local.remove(`syncLog_${syncId}`);
+  } catch (e) {
+    // ignore
+  }
+}
+
 // --- Message pagination helper ---
 
 async function* getMessages(folder) {
@@ -55,6 +90,8 @@ async function syncFolders(syncId, folderA, folderB, direction = "both") {
     errors: [],
   };
 
+  await appendLog(syncId, "info", `Sync started (${direction}): ${folderA.name} ↔ ${folderB.name}`);
+
   try {
     const [idsA, idsB] = await Promise.all([
       collectMessageIds(folderA),
@@ -81,7 +118,9 @@ async function syncFolders(syncId, folderA, folderB, direction = "both") {
             await messenger.messages.copy(batch, folderB.id);
             result.copiedAtoB += batch.length;
           } catch (err) {
-            result.errors.push(`A→B batch ${i}: ${err.message}`);
+            const msg = `A→B batch ${i}: ${err.message}`;
+            result.errors.push(msg);
+            await appendLog(syncId, "error", msg);
           }
         }
       }
@@ -104,7 +143,9 @@ async function syncFolders(syncId, folderA, folderB, direction = "both") {
             await messenger.messages.copy(batch, folderA.id);
             result.copiedBtoA += batch.length;
           } catch (err) {
-            result.errors.push(`B→A batch ${i}: ${err.message}`);
+            const msg = `B→A batch ${i}: ${err.message}`;
+            result.errors.push(msg);
+            await appendLog(syncId, "error", msg);
           }
         }
       }
@@ -112,11 +153,16 @@ async function syncFolders(syncId, folderA, folderB, direction = "both") {
   } catch (err) {
     state.error = err.message;
     result.errors.push(err.message);
+    await appendLog(syncId, "error", `Fatal: ${err.message}`);
   }
 
   state.running = false;
   state.lastSync = new Date().toISOString();
   state.lastResult = result;
+
+  const summary = `Done: A→B ${result.copiedAtoB}, B→A ${result.copiedBtoA}` +
+    (result.errors.length ? `, ${result.errors.length} error(s)` : "");
+  await appendLog(syncId, result.errors.length > 0 ? "error" : "info", summary);
 
   return result;
 }
@@ -258,6 +304,7 @@ messenger.runtime.onMessage.addListener(async (message) => {
       const filtered = configs.filter((c) => c.id !== message.syncId);
       await saveConfigs(filtered);
       await stopAutoSync(message.syncId);
+      await clearLog(message.syncId);
       syncStates.delete(message.syncId);
       return { ok: true };
     }
@@ -299,6 +346,13 @@ messenger.runtime.onMessage.addListener(async (message) => {
       }
       return states;
     }
+
+    case "getLog":
+      return await loadLog(message.syncId);
+
+    case "clearLog":
+      await clearLog(message.syncId);
+      return { ok: true };
 
     default:
       return { error: `Unknown action: ${message.action}` };

@@ -4,6 +4,7 @@ const els = {
   // Views
   listView: document.getElementById("listView"),
   editView: document.getElementById("editView"),
+  logView: document.getElementById("logView"),
   // List view
   btnAdd: document.getElementById("btnAdd"),
   syncList: document.getElementById("syncList"),
@@ -19,6 +20,12 @@ const els = {
   autoSyncInterval: document.getElementById("autoSyncInterval"),
   btnSave: document.getElementById("btnSave"),
   btnCancel: document.getElementById("btnCancel"),
+  // Log view
+  btnLogBack: document.getElementById("btnLogBack"),
+  btnClearLog: document.getElementById("btnClearLog"),
+  logViewTitle: document.getElementById("logViewTitle"),
+  logEntries: document.getElementById("logEntries"),
+  logEmpty: document.getElementById("logEmpty"),
 };
 
 let accountsData = [];
@@ -40,6 +47,11 @@ function applyI18n() {
 
 document.addEventListener("DOMContentLoaded", async () => {
   applyI18n();
+
+  const manifest = messenger.runtime.getManifest();
+  document.getElementById("versionInfo").textContent =
+    `v${manifest.version} (Build ${typeof BUILD_NUMBER !== "undefined" ? BUILD_NUMBER : "?"})`;
+
   await loadAccounts();
   showListView();
 
@@ -48,6 +60,8 @@ document.addEventListener("DOMContentLoaded", async () => {
   els.btnAdd.addEventListener("click", () => showEditView(null));
   els.btnSave.addEventListener("click", saveSync);
   els.btnCancel.addEventListener("click", showListView);
+  els.btnLogBack.addEventListener("click", showListView);
+  els.btnClearLog.addEventListener("click", clearCurrentLog);
 });
 
 // --- Views ---
@@ -56,6 +70,7 @@ async function showListView() {
   editingSyncId = null;
   els.listView.classList.remove("hidden");
   els.editView.classList.add("hidden");
+  els.logView.classList.add("hidden");
   await renderSyncList();
   startStatusPolling();
 }
@@ -65,6 +80,7 @@ async function showEditView(syncId) {
   editingSyncId = syncId;
   els.listView.classList.add("hidden");
   els.editView.classList.remove("hidden");
+  els.logView.classList.add("hidden");
 
   // Reset form
   els.syncName.value = "";
@@ -101,6 +117,43 @@ async function showEditView(syncId) {
       els.autoSyncInterval.value = config.autoSyncInterval || 5;
     }
   }
+}
+
+// --- Log view ---
+
+let logSyncId = null;
+
+async function showLogView(syncId, syncName) {
+  stopStatusPolling();
+  logSyncId = syncId;
+  els.listView.classList.add("hidden");
+  els.editView.classList.add("hidden");
+  els.logView.classList.remove("hidden");
+  els.logViewTitle.textContent = `${i18n("logTitle")}: ${syncName}`;
+  await renderLog(syncId);
+}
+
+async function renderLog(syncId) {
+  const entries = await messenger.runtime.sendMessage({ action: "getLog", syncId });
+  els.logEntries.innerHTML = "";
+  if (!entries || entries.length === 0) {
+    els.logEmpty.classList.remove("hidden");
+    return;
+  }
+  els.logEmpty.classList.add("hidden");
+  for (const entry of [...entries].reverse()) {
+    const row = document.createElement("div");
+    row.className = `log-entry log-entry-${entry.level}`;
+    const time = new Date(entry.ts).toLocaleString();
+    row.innerHTML = `<span class="log-ts">${escapeHtml(time)}</span><span class="log-msg">${escapeHtml(entry.message)}</span>`;
+    els.logEntries.appendChild(row);
+  }
+}
+
+async function clearCurrentLog() {
+  if (!logSyncId) return;
+  await messenger.runtime.sendMessage({ action: "clearLog", syncId: logSyncId });
+  await renderLog(logSyncId);
 }
 
 // --- Load accounts & folders ---
@@ -284,6 +337,7 @@ function createSyncCard(config, state) {
     <div class="sync-card-actions">
       <button class="btn btn-primary btn-sm btn-sync" ${state.running ? "disabled" : ""}>${i18n("btnStartSync")}</button>
       <button class="btn btn-secondary btn-sm btn-edit">${i18n("btnEdit")}</button>
+      <button class="btn btn-log btn-sm btn-log-view">${i18n("btnLog")}${state.lastResult?.errors?.length > 0 || state.error ? ' <span class="log-error-badge">!</span>' : ""}</button>
       <button class="btn btn-danger btn-sm btn-delete">${i18n("btnDelete")}</button>
     </div>
   `;
@@ -291,6 +345,7 @@ function createSyncCard(config, state) {
   // Event listeners
   card.querySelector(".btn-sync").addEventListener("click", () => startSync(config.id));
   card.querySelector(".btn-edit").addEventListener("click", () => showEditView(config.id));
+  card.querySelector(".btn-log-view").addEventListener("click", () => showLogView(config.id, config.name || i18n("unnamed")));
   card.querySelector(".btn-delete").addEventListener("click", () => deleteSync(config.id, config.name));
 
   return card;

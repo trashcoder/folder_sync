@@ -5,7 +5,7 @@
   <link rel="stylesheet" href="popup.css">
 </head>
 <body>
-  <h1>FolderSync</h1>
+  <h1>FolderSync <span id="versionInfo" class="version-info"></span></h1>
 
   <!-- List View -->
   <div id="listView">
@@ -74,6 +74,18 @@
     </section>
   </div>
 
+  <!-- Log View -->
+  <div id="logView" class="hidden">
+    <div class="log-header">
+      <button id="btnLogBack" class="btn btn-secondary btn-sm" data-i18n="btnBack"></button>
+      <span id="logViewTitle" class="log-title"></span>
+      <button id="btnClearLog" class="btn btn-danger btn-sm" data-i18n="btnClearLog"></button>
+    </div>
+    <div id="logEntries" class="log-entries"></div>
+    <div id="logEmpty" class="log-empty hidden" data-i18n="logEmpty"></div>
+  </div>
+
+  <script src="../build_info.js"></script>
   <script src="popup.js"></script>
 </body>
 </html>
