@@ -47,6 +47,15 @@
   "directionBtoA": {
     "message": "B → A (Nur B nach A)"
   },
+  "directionBothShort": {
+    "message": "A ↔ B"
+  },
+  "directionAtoBShort": {
+    "message": "A → B"
+  },
+  "directionBtoAShort": {
+    "message": "B → A"
+  },
   "autoSync": {
     "message": "Automatische Synchronisation"
   },
@@ -67,6 +76,23 @@
   },
   "statusSyncing": {
     "message": "Synchronisiere..."
+  },
+  "progressPreparing": {
+    "message": "Nachrichten werden verglichen..."
+  },
+  "progressCount": {
+    "message": "$DONE$/$TOTAL$ kopiert, $REMAINING$ verbleibend",
+    "placeholders": {
+      "done": {
+        "content": "$1"
+      },
+      "total": {
+        "content": "$2"
+      },
+      "remaining": {
+        "content": "$3"
+      }
+    }
   },
   "lastSync": {
     "message": "Letzte Sync:"

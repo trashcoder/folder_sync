@@ -227,10 +227,12 @@ async function saveSync() {
     folderA: {
       id: folderAOption.value,
       name: folderAOption.dataset.folderName,
+      path: folderAOption.textContent,
     },
     folderB: {
       id: folderBOption.value,
       name: folderBOption.dataset.folderName,
+      path: folderBOption.textContent,
     },
     direction: els.syncDirection.value,
     autoSyncEnabled: els.autoSyncEnabled.checked,
@@ -321,16 +323,30 @@ function createSyncCard(config, state) {
   const autoSyncBadge = state.autoSyncActive
     ? `<span class="badge badge-auto">Auto ${config.autoSyncInterval}min</span>`
     : "";
+  const progress = getProgressView(state.progress);
 
   card.innerHTML = `
     <div class="sync-card-header">
       <div class="sync-card-title">${escapeHtml(config.name || i18n("unnamed"))}</div>
       ${autoSyncBadge}
     </div>
-    <div class="sync-card-folders">${escapeHtml(config.folderA?.name || "?")} ${directionArrow(config.direction)} ${escapeHtml(config.folderB?.name || "?")}</div>
+    <div class="sync-card-folders">
+      <span>${escapeHtml(syncEndpoint(config, "A"))}</span>
+      <span class="sync-card-arrow">${directionArrow(config.direction)}</span>
+      <span>${escapeHtml(syncEndpoint(config, "B"))}</span>
+    </div>
     <div class="sync-card-status">
       <span class="status-dot ${statusClass}"></span>
       <span class="status-text">${escapeHtml(statusText)}</span>
+    </div>
+    <div class="sync-progress ${progress.visible ? "" : "hidden"}">
+      <div class="sync-progress-row">
+        <span class="sync-progress-text">${escapeHtml(progress.text)}</span>
+        <span class="sync-progress-count">${escapeHtml(progress.count)}</span>
+      </div>
+      <div class="sync-progress-bar" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="${progress.percent}">
+        <div class="sync-progress-fill" style="width: ${progress.percent}%"></div>
+      </div>
     </div>
     ${lastSyncText ? `<div class="sync-card-meta">${i18n("lastSync")} ${lastSyncText}</div>` : ""}
     ${resultText ? `<div class="sync-card-meta">${escapeHtml(resultText)}</div>` : ""}
@@ -349,6 +365,68 @@ function createSyncCard(config, state) {
   card.querySelector(".btn-delete").addEventListener("click", () => deleteSync(config.id, config.name));
 
   return card;
+}
+
+function syncEndpoint(config, side) {
+  const accountId = side === "A" ? config.accountA : config.accountB;
+  const folder = side === "A" ? config.folderA : config.folderB;
+  const account = accountsData.find((item) => item.id === accountId);
+  const accountLabel = account ? `${account.name} (${account.type})` : accountId || "?";
+  return `${accountLabel} / ${folder?.path || folder?.name || "?"}`;
+}
+
+function getProgressView(progress) {
+  if (!progress) {
+    return {
+      visible: false,
+      text: "",
+      count: "",
+      percent: 0,
+    };
+  }
+
+  if (progress.phase === "prepare") {
+    return {
+      visible: true,
+      text: i18n("progressPreparing"),
+      count: "",
+      percent: 0,
+    };
+  }
+
+  const total = Number(progress.total) || 0;
+  const completed = Number(progress.completed) || 0;
+  const remaining = Number(progress.remaining) || Math.max(total - completed, 0);
+  const percent = total > 0 ? Math.min(Math.round((completed / total) * 100), 100) : 100;
+
+  return {
+    visible: true,
+    text: progress.direction ? directionLabel(progress.direction) : i18n("statusSyncing"),
+    count: i18n("progressCount", [completed, total, remaining]),
+    percent,
+  };
+}
+
+function updateProgress(card, progress) {
+  const progressEl = card.querySelector(".sync-progress");
+  const textEl = card.querySelector(".sync-progress-text");
+  const countEl = card.querySelector(".sync-progress-count");
+  const barEl = card.querySelector(".sync-progress-bar");
+  const fillEl = card.querySelector(".sync-progress-fill");
+  if (!progressEl || !textEl || !countEl || !barEl || !fillEl) return;
+
+  const view = getProgressView(progress);
+  progressEl.classList.toggle("hidden", !view.visible);
+  textEl.textContent = view.text;
+  countEl.textContent = view.count;
+  barEl.setAttribute("aria-valuenow", view.percent.toString());
+  fillEl.style.width = `${view.percent}%`;
+}
+
+function directionLabel(direction) {
+  if (direction === "aToB") return i18n("directionAtoBShort");
+  if (direction === "bToA") return i18n("directionBtoAShort");
+  return i18n("directionBothShort");
 }
 
 function directionArrow(direction) {
@@ -430,6 +508,7 @@ function startStatusPolling() {
         statusText.textContent = i18n("statusReady");
         btn.disabled = false;
       }
+      updateProgress(card, state.progress);
     }
   }, 2000);
 }

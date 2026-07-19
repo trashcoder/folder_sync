@@ -1,6 +1,6 @@
 const ALARM_PREFIX = "foldersync-auto-sync-";
 
-// Per-sync state: Map<syncId, { running, lastSync, lastResult, error }>
+// Per-sync state: Map<syncId, { running, lastSync, lastResult, error, progress }>
 const syncStates = new Map();
 
 function getSyncState(syncId) {
@@ -10,9 +10,24 @@ function getSyncState(syncId) {
       lastSync: null,
       lastResult: null,
       error: null,
+      progress: null,
     });
   }
   return syncStates.get(syncId);
+}
+
+function setSyncProgress(state, progress) {
+  state.progress = progress;
+}
+
+function updateCopyProgress(state, direction, completed, total) {
+  setSyncProgress(state, {
+    phase: "copy",
+    direction,
+    completed,
+    total,
+    remaining: Math.max(total - completed, 0),
+  });
 }
 
 // --- Log persistence ---
@@ -81,6 +96,13 @@ async function syncFolders(syncId, folderA, folderB, direction = "both") {
   const state = getSyncState(syncId);
   state.running = true;
   state.error = null;
+  setSyncProgress(state, {
+    phase: "prepare",
+    direction: null,
+    completed: 0,
+    total: 0,
+    remaining: 0,
+  });
 
   const result = {
     checkedA: 0,
@@ -101,52 +123,60 @@ async function syncFolders(syncId, folderA, folderB, direction = "both") {
     result.checkedA = idsA.size;
     result.checkedB = idsB.size;
 
-    // Copy A -> B
+    let missingInB = [];
     if (direction === "both" || direction === "aToB") {
-      const missingInB = [];
       for (const [messageId, tbId] of idsA) {
         if (!idsB.has(messageId)) {
           missingInB.push(tbId);
         }
       }
-
-      if (missingInB.length > 0) {
-        const batchSize = 50;
-        for (let i = 0; i < missingInB.length; i += batchSize) {
-          const batch = missingInB.slice(i, i + batchSize);
-          try {
-            await messenger.messages.copy(batch, folderB.id);
-            result.copiedAtoB += batch.length;
-          } catch (err) {
-            const msg = `A→B batch ${i}: ${err.message}`;
-            result.errors.push(msg);
-            await appendLog(syncId, "error", msg);
-          }
-        }
-      }
     }
 
-    // Copy B -> A
+    let missingInA = [];
     if (direction === "both" || direction === "bToA") {
-      const missingInA = [];
       for (const [messageId, tbId] of idsB) {
         if (!idsA.has(messageId)) {
           missingInA.push(tbId);
         }
       }
+    }
 
-      if (missingInA.length > 0) {
-        const batchSize = 50;
-        for (let i = 0; i < missingInA.length; i += batchSize) {
-          const batch = missingInA.slice(i, i + batchSize);
-          try {
-            await messenger.messages.copy(batch, folderA.id);
-            result.copiedBtoA += batch.length;
-          } catch (err) {
-            const msg = `B→A batch ${i}: ${err.message}`;
-            result.errors.push(msg);
-            await appendLog(syncId, "error", msg);
-          }
+    const totalToCopy = missingInB.length + missingInA.length;
+    let totalCopied = 0;
+    updateCopyProgress(state, direction, totalCopied, totalToCopy);
+
+    // Copy A -> B
+    if (missingInB.length > 0) {
+      const batchSize = 50;
+      for (let i = 0; i < missingInB.length; i += batchSize) {
+        const batch = missingInB.slice(i, i + batchSize);
+        try {
+          await messenger.messages.copy(batch, folderB.id);
+          result.copiedAtoB += batch.length;
+          totalCopied += batch.length;
+          updateCopyProgress(state, "aToB", totalCopied, totalToCopy);
+        } catch (err) {
+          const msg = `A→B batch ${i}: ${err.message}`;
+          result.errors.push(msg);
+          await appendLog(syncId, "error", msg);
+        }
+      }
+    }
+
+    // Copy B -> A
+    if (missingInA.length > 0) {
+      const batchSize = 50;
+      for (let i = 0; i < missingInA.length; i += batchSize) {
+        const batch = missingInA.slice(i, i + batchSize);
+        try {
+          await messenger.messages.copy(batch, folderA.id);
+          result.copiedBtoA += batch.length;
+          totalCopied += batch.length;
+          updateCopyProgress(state, "bToA", totalCopied, totalToCopy);
+        } catch (err) {
+          const msg = `B→A batch ${i}: ${err.message}`;
+          result.errors.push(msg);
+          await appendLog(syncId, "error", msg);
         }
       }
     }
@@ -159,6 +189,7 @@ async function syncFolders(syncId, folderA, folderB, direction = "both") {
   state.running = false;
   state.lastSync = new Date().toISOString();
   state.lastResult = result;
+  setSyncProgress(state, null);
 
   const summary = `Done: A→B ${result.copiedAtoB}, B→A ${result.copiedBtoA}` +
     (result.errors.length ? `, ${result.errors.length} error(s)` : "");
