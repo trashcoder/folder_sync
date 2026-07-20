@@ -1,6 +1,6 @@
 const test = require("node:test");
 const assert = require("node:assert/strict");
-const { runExclusive } = require("../sync-lock.js");
+const { runExclusive, runMutationExclusive } = require("../sync-lock.js");
 
 test("manual start and alarm cannot run the same sync concurrently", async () => {
   const state = { running: false };
@@ -37,4 +37,60 @@ test("releases the sync lock after an exception", async () => {
     started: true,
     value: "retry",
   });
+});
+
+test("rejects delete during a run without changing config, alarm, log, or status", async () => {
+  const state = { running: false };
+  const data = {
+    config: { id: "alpha" },
+    alarm: true,
+    log: ["started"],
+    status: state,
+  };
+  let releaseSync;
+  const syncPaused = new Promise((resolve) => { releaseSync = resolve; });
+
+  const sync = runExclusive(state, async () => syncPaused);
+  const deletion = await runMutationExclusive(state, async () => {
+    data.config = null;
+    data.alarm = false;
+    data.log = [];
+    data.status = null;
+  });
+
+  assert.deepEqual(deletion, { started: false });
+  assert.deepEqual(data.config, { id: "alpha" });
+  assert.equal(data.alarm, true);
+  assert.deepEqual(data.log, ["started"]);
+  assert.equal(data.status, state);
+  releaseSync();
+  await sync;
+});
+
+test("rejects edit during a run and prevents a sync from racing a pending edit", async () => {
+  const runningState = { running: false };
+  let releaseSync;
+  const syncPaused = new Promise((resolve) => { releaseSync = resolve; });
+  const sync = runExclusive(runningState, async () => syncPaused);
+  let name = "Original";
+
+  const rejectedEdit = await runMutationExclusive(runningState, async () => {
+    name = "Changed";
+  });
+  assert.deepEqual(rejectedEdit, { started: false });
+  assert.equal(name, "Original");
+  releaseSync();
+  await sync;
+
+  const editingState = { running: false };
+  let releaseEdit;
+  const editPaused = new Promise((resolve) => { releaseEdit = resolve; });
+  const edit = runMutationExclusive(editingState, async () => {
+    await editPaused;
+    name = "Changed";
+  });
+  assert.deepEqual(await runExclusive(editingState, async () => "sync"), { started: false });
+  releaseEdit();
+  await edit;
+  assert.equal(name, "Changed");
 });

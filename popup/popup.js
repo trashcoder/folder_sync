@@ -462,6 +462,7 @@ function createSyncCard(config, state) {
   syncButton.disabled = !!state.running;
 
   const editButton = createButton("btn btn-secondary btn-sm btn-edit", i18n("btnEdit"));
+  editButton.disabled = !!state.running;
 
   const logButton = createButton("btn btn-log btn-sm btn-log-view", i18n("btnLog"));
   if (state.lastResult?.errors?.length > 0 || state.error) {
@@ -472,6 +473,7 @@ function createSyncCard(config, state) {
   }
 
   const deleteButton = createButton("btn btn-danger btn-sm btn-delete", i18n("btnDelete"));
+  deleteButton.disabled = !!state.running;
   actions.append(syncButton, editButton, logButton, deleteButton);
   card.appendChild(actions);
 
@@ -565,8 +567,9 @@ async function startSync(syncId) {
   // Update UI immediately
   const card = els.syncList.querySelector(`[data-sync-id="${syncId}"]`);
   if (card) {
-    const btn = card.querySelector(".btn-sync");
-    btn.disabled = true;
+    for (const btn of card.querySelectorAll(".btn-sync, .btn-edit, .btn-delete")) {
+      btn.disabled = true;
+    }
     const statusDot = card.querySelector(".status-dot");
     const statusText = card.querySelector(".status-text");
     statusDot.className = "status-dot running";
@@ -581,8 +584,9 @@ async function startSync(syncId) {
       const statusText = card.querySelector(".status-text");
       statusDot.className = "status-dot error";
       statusText.textContent = result.error;
-      const btn = card.querySelector(".btn-sync");
-      btn.disabled = false;
+      for (const btn of card.querySelectorAll(".btn-sync, .btn-edit, .btn-delete")) {
+        btn.disabled = false;
+      }
     }
     return;
   }
@@ -594,7 +598,12 @@ async function startSync(syncId) {
 async function deleteSync(syncId, name) {
   if (!confirm(i18n("confirmDelete", [name]))) return;
 
-  await messenger.runtime.sendMessage({ action: "deleteConfig", syncId });
+  try {
+    const response = await messenger.runtime.sendMessage({ action: "deleteConfig", syncId });
+    if (response?.error) throw new Error(response.error);
+  } catch (err) {
+    alert(err.message);
+  }
   await renderSyncList();
 }
 
@@ -611,20 +620,20 @@ function startStatusPolling() {
 
       const statusDot = card.querySelector(".status-dot");
       const statusText = card.querySelector(".status-text");
-      const btn = card.querySelector(".btn-sync");
+      const guardedButtons = card.querySelectorAll(".btn-sync, .btn-edit, .btn-delete");
 
       if (state.running) {
         statusDot.className = "status-dot running";
         statusText.textContent = i18n("statusSyncing");
-        btn.disabled = true;
+        for (const btn of guardedButtons) btn.disabled = true;
       } else if (state.error) {
         statusDot.className = "status-dot error";
         statusText.textContent = state.error;
-        btn.disabled = false;
+        for (const btn of guardedButtons) btn.disabled = false;
       } else {
         statusDot.className = "status-dot idle";
         statusText.textContent = i18n("statusReady");
-        btn.disabled = false;
+        for (const btn of guardedButtons) btn.disabled = false;
       }
       updateProgress(card, state.progress);
     }

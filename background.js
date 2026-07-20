@@ -4,9 +4,14 @@ const ALARM_PREFIX = "foldersync-auto-sync-";
 const syncStates = new Map();
 const syncStatesReady = restoreSyncStates();
 
-async function persistSyncStates() {
+async function persistSyncStates(overrides = {}) {
+  const statesToPersist = new Map(syncStates);
+  for (const [syncId, override] of Object.entries(overrides)) {
+    const state = statesToPersist.get(syncId);
+    if (state) statesToPersist.set(syncId, { ...state, ...override });
+  }
   await messenger.storage.local.set({
-    [SyncStateStore.STORAGE_KEY]: SyncStateStore.serialize(syncStates),
+    [SyncStateStore.STORAGE_KEY]: SyncStateStore.serialize(statesToPersist),
   });
 }
 
@@ -394,13 +399,11 @@ async function isAutoSyncActive(syncId) {
 async function startSyncExclusive(syncId) {
   await syncStatesReady;
   const state = getSyncState(syncId);
-  if (state.running) return { started: false };
-  state.running = true;
-  state.startedAt = new Date().toISOString();
-  state.error = null;
-  try {
+  return await SyncLock.runExclusive(state, async () => {
+    state.startedAt = new Date().toISOString();
+    state.error = null;
     await persistSyncStates();
-    const value = await (async () => {
+    try {
       try {
         const configs = await loadConfigs();
         const config = configs.find((candidate) => candidate.id === syncId);
@@ -417,14 +420,22 @@ async function startSyncExclusive(syncId) {
       } finally {
         setSyncProgress(state, null);
       }
-    })();
-    return { started: true, value };
-  } finally {
-    state.running = false;
-    state.startedAt = null;
-    setSyncProgress(state, null);
-    await persistSyncStates();
+    } finally {
+      state.startedAt = null;
+      setSyncProgress(state, null);
+      // Persist the completed snapshot without releasing the in-memory lock;
+      // runExclusive clears running after this operation returns.
+      await persistSyncStates({ [syncId]: { running: false, startedAt: null } });
+    }
+  });
+}
+
+async function mutateConfigExclusive(syncId, operation) {
+  const attempt = await SyncLock.runMutationExclusive(getSyncState(syncId), operation);
+  if (!attempt.started) {
+    return { error: messenger.i18n.getMessage("errorConfigLocked") };
   }
+  return attempt.value;
 }
 
 messenger.alarms.onAlarm.addListener(async (alarm) => {
@@ -498,24 +509,28 @@ async function handleRuntimeMessage(message) {
     }
 
     case "updateConfig": {
-      const configs = await loadConfigs();
-      const idx = configs.findIndex((c) => c.id === message.config.id);
-      if (idx === -1) return { error: "Config not found" };
-      await validateConfig(message.config);
-      configs[idx] = message.config;
-      await saveConfigs(configs);
-      return { ok: true };
+      return await mutateConfigExclusive(message.config.id, async () => {
+        const configs = await loadConfigs();
+        const idx = configs.findIndex((c) => c.id === message.config.id);
+        if (idx === -1) return { error: "Config not found" };
+        await validateConfig(message.config);
+        configs[idx] = message.config;
+        await saveConfigs(configs);
+        return { ok: true };
+      });
     }
 
     case "deleteConfig": {
-      const configs = await loadConfigs();
-      const filtered = configs.filter((c) => c.id !== message.syncId);
-      await saveConfigs(filtered);
-      await stopAutoSync(message.syncId);
-      await clearLog(message.syncId);
-      syncStates.delete(message.syncId);
-      await persistSyncStates();
-      return { ok: true };
+      return await mutateConfigExclusive(message.syncId, async () => {
+        const configs = await loadConfigs();
+        const filtered = configs.filter((c) => c.id !== message.syncId);
+        await saveConfigs(filtered);
+        await stopAutoSync(message.syncId);
+        await clearLog(message.syncId);
+        syncStates.delete(message.syncId);
+        await persistSyncStates();
+        return { ok: true };
+      });
     }
 
     case "startSync": {

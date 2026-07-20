@@ -131,6 +131,9 @@
   "errorSyncRunning": {
     "message": "Sync already running"
   },
+  "errorConfigLocked": {
+    "message": "This synchronization cannot be edited or deleted while it is running"
+  },
   "errorNoFolders": {
     "message": "No folders configured"
   },
