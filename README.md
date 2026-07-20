@@ -49,7 +49,6 @@ This creates a `foldersync-<version>.xpi` file ready for installation.
 | Permission | Reason |
 |---|---|
 | `accountsRead` | List available email accounts |
-| `accountsFolders` | Access folder structures |
 | `messagesRead` | Read message headers for deduplication |
 | `messagesMove` | Copy messages between folders |
 | `storage` | Persist sync configurations |

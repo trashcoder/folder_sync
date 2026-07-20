@@ -32,7 +32,6 @@
   },
   "permissions": [
     "accountsRead",
-    "accountsFolders",
     "messagesRead",
     "messagesMove",
     "storage",
