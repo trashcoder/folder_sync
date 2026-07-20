@@ -57,6 +57,7 @@ document.addEventListener("DOMContentLoaded", async () => {
 
   els.accountA.addEventListener("change", () => populateFolders("A"));
   els.accountB.addEventListener("change", () => populateFolders("B"));
+  els.syncDirection.addEventListener("change", updateFolderAvailability);
   els.btnAdd.addEventListener("click", () => showEditView(null));
   els.btnSave.addEventListener("click", saveSync);
   els.btnCancel.addEventListener("click", showListView);
@@ -102,6 +103,7 @@ async function showEditView(syncId) {
     const config = configs.find((c) => c.id === syncId);
     if (config) {
       els.syncName.value = config.name || "";
+      els.syncDirection.value = config.direction || "both";
       if (config.accountA) {
         els.accountA.value = config.accountA;
         populateFolders("A");
@@ -112,7 +114,6 @@ async function showEditView(syncId) {
         populateFolders("B");
         if (config.folderB) els.folderB.value = config.folderB.id;
       }
-      els.syncDirection.value = config.direction || "both";
       els.autoSyncEnabled.checked = config.autoSyncEnabled || false;
       els.autoSyncInterval.value = config.autoSyncInterval || 5;
     }
@@ -214,10 +215,26 @@ function populateFolders(side) {
     opt.dataset.folderId = folder.id;
     opt.dataset.folderName = folder.name;
     opt.dataset.folderType = folder.type || "";
+    opt.dataset.canAddMessages = String(folder.canAddMessages === true);
     folderSelect.appendChild(opt);
   }
 
   folderSelect.disabled = false;
+  updateFolderAvailability();
+}
+
+function updateFolderAvailability() {
+  const direction = els.syncDirection.value;
+  for (const [side, select] of [["A", els.folderA], ["B", els.folderB]]) {
+    const isDestination = direction === "both" ||
+      (direction === "aToB" && side === "B") ||
+      (direction === "bToA" && side === "A");
+    for (const option of select.options) {
+      if (!option.value) continue;
+      option.disabled = isDestination && option.dataset.canAddMessages !== "true";
+    }
+    if (select.selectedOptions[0]?.disabled) select.value = "";
+  }
 }
 
 function setPlaceholderOption(select, messageName) {
@@ -235,6 +252,11 @@ async function saveSync() {
 
   if (!folderAOption?.value || !folderBOption?.value) {
     alert(i18n("alertSelectBothFolders"));
+    return;
+  }
+
+  if (folderAOption.value === folderBOption.value) {
+    alert(i18n("errorFoldersIdentical"));
     return;
   }
 
@@ -259,31 +281,38 @@ async function saveSync() {
     autoSyncInterval: parseInt(els.autoSyncInterval.value, 10) || 5,
   };
 
-  if (editingSyncId) {
-    config.id = editingSyncId;
-    await messenger.runtime.sendMessage({ action: "updateConfig", config });
+  try {
+    if (editingSyncId) {
+      config.id = editingSyncId;
+      const response = await messenger.runtime.sendMessage({ action: "updateConfig", config });
+      if (response?.error) throw new Error(response.error);
 
-    // Update auto-sync alarm
-    if (config.autoSyncEnabled) {
-      await messenger.runtime.sendMessage({
-        action: "startAutoSync",
-        syncId: editingSyncId,
-        intervalMinutes: config.autoSyncInterval,
-      });
+      // Update auto-sync alarm
+      if (config.autoSyncEnabled) {
+        await messenger.runtime.sendMessage({
+          action: "startAutoSync",
+          syncId: editingSyncId,
+          intervalMinutes: config.autoSyncInterval,
+        });
+      } else {
+        await messenger.runtime.sendMessage({ action: "stopAutoSync", syncId: editingSyncId });
+      }
     } else {
-      await messenger.runtime.sendMessage({ action: "stopAutoSync", syncId: editingSyncId });
-    }
-  } else {
-    const newConfig = await messenger.runtime.sendMessage({ action: "addConfig", config });
+      const newConfig = await messenger.runtime.sendMessage({ action: "addConfig", config });
+      if (newConfig?.error) throw new Error(newConfig.error);
 
-    // Start auto-sync if enabled
-    if (config.autoSyncEnabled && newConfig.id) {
-      await messenger.runtime.sendMessage({
-        action: "startAutoSync",
-        syncId: newConfig.id,
-        intervalMinutes: config.autoSyncInterval,
-      });
+      // Start auto-sync if enabled
+      if (config.autoSyncEnabled && newConfig.id) {
+        await messenger.runtime.sendMessage({
+          action: "startAutoSync",
+          syncId: newConfig.id,
+          intervalMinutes: config.autoSyncInterval,
+        });
+      }
     }
+  } catch (err) {
+    alert(err.message);
+    return;
   }
 
   showListView();

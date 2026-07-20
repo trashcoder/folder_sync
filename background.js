@@ -171,6 +171,7 @@ async function syncFolders(syncId, folderA, folderB, direction = "both") {
       for (let i = 0; i < missingInB.length; i += batchSize) {
         const batch = missingInB.slice(i, i + batchSize);
         try {
+          await assertFolderWritable(folderB, "B");
           await messenger.messages.copy(batch, folderB.id);
           result.copiedAtoB += batch.length;
           totalCopied += batch.length;
@@ -189,6 +190,7 @@ async function syncFolders(syncId, folderA, folderB, direction = "both") {
       for (let i = 0; i < missingInA.length; i += batchSize) {
         const batch = missingInA.slice(i, i + batchSize);
         try {
+          await assertFolderWritable(folderA, "A");
           await messenger.messages.copy(batch, folderA.id);
           result.copiedBtoA += batch.length;
           totalCopied += batch.length;
@@ -222,14 +224,33 @@ async function syncFolders(syncId, folderA, folderB, direction = "both") {
 async function getAccountsWithFolders() {
   const accounts = await messenger.accounts.list(true);
   console.log("FolderSync: raw accounts:", JSON.stringify(accounts.map(a => ({ id: a.id, name: a.name, type: a.type, hasRootFolder: !!a.rootFolder }))));
-  return accounts
+  return await Promise.all(accounts
     .filter((account) => account.type !== "none" && account.type !== "nntp")
-    .map((account) => ({
+    .map(async (account) => ({
       id: account.id,
       name: account.name,
       type: account.type,
-      folders: flattenFolders(account.rootFolder?.subFolders || []),
-    }));
+      folders: await addFolderCapabilities(flattenFolders(account.rootFolder?.subFolders || [])),
+    })));
+}
+
+async function addFolderCapabilities(folders) {
+  return await Promise.all(folders.map(async (folder) => {
+    try {
+      const capabilities = await messenger.folders.getFolderCapabilities(folder.id);
+      return { ...folder, canAddMessages: capabilities.canAddMessages === true };
+    } catch (err) {
+      console.warn(`FolderSync: failed to read capabilities for ${folder.id}:`, err);
+      return { ...folder, canAddMessages: false };
+    }
+  }));
+}
+
+async function assertFolderWritable(folder, side) {
+  const capabilities = await messenger.folders.getFolderCapabilities(folder.id);
+  if (capabilities.canAddMessages !== true) {
+    throw new Error(messenger.i18n.getMessage("errorFolderNotWritable", [side]));
+  }
 }
 
 function flattenFolders(folders, prefix = "") {
@@ -293,7 +314,24 @@ async function resolveConfigFolders(config, accounts = null) {
     if (!result.folder) throw new Error(folderResolutionError(side, result.error));
     resolved[`folder${side}`] = result.folder;
   }
+  validateResolvedFolders(resolved.folderA, resolved.folderB, config.direction || "both");
   return resolved;
+}
+
+function validateResolvedFolders(folderA, folderB, direction) {
+  if (folderA.id === folderB.id) {
+    throw new Error(messenger.i18n.getMessage("errorFoldersIdentical"));
+  }
+  if ((direction === "both" || direction === "bToA") && folderA.canAddMessages !== true) {
+    throw new Error(messenger.i18n.getMessage("errorFolderNotWritable", ["A"]));
+  }
+  if ((direction === "both" || direction === "aToB") && folderB.canAddMessages !== true) {
+    throw new Error(messenger.i18n.getMessage("errorFolderNotWritable", ["B"]));
+  }
+}
+
+async function validateConfig(config) {
+  await resolveConfigFolders(config);
 }
 
 async function resolveAndPersistConfig(config, configs) {
@@ -453,6 +491,7 @@ async function handleRuntimeMessage(message) {
     case "addConfig": {
       const configs = await loadConfigs();
       const newConfig = { ...message.config, id: generateId() };
+      await validateConfig(newConfig);
       configs.push(newConfig);
       await saveConfigs(configs);
       return newConfig;
@@ -462,6 +501,7 @@ async function handleRuntimeMessage(message) {
       const configs = await loadConfigs();
       const idx = configs.findIndex((c) => c.id === message.config.id);
       if (idx === -1) return { error: "Config not found" };
+      await validateConfig(message.config);
       configs[idx] = message.config;
       await saveConfigs(configs);
       return { ok: true };

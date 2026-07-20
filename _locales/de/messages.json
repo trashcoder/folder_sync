@@ -146,6 +146,13 @@
     "message": "Ordner $SIDE$ ist nicht eindeutig auffindbar",
     "placeholders": { "side": { "content": "$1" } }
   },
+  "errorFolderNotWritable": {
+    "message": "Ordner $SIDE$ kann keine Nachrichten aufnehmen",
+    "placeholders": { "side": { "content": "$1" } }
+  },
+  "errorFoldersIdentical": {
+    "message": "Quelle und Ziel dürfen nicht derselbe Ordner sein"
+  },
   "aboutDescription": {
     "message": "FolderSync synchronisiert E-Mail-Ordner zwischen verschiedenen Accounts. Nachrichten werden anhand ihrer eindeutigen Message-ID verglichen und fehlende Nachrichten in den jeweils anderen Ordner kopiert."
   },
