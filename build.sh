@@ -15,6 +15,7 @@ rm -f "$OUTPUT"
 zip -r "$OUTPUT" \
   manifest.json \
   folder-resolver.js \
+  message-matcher.js \
   background.js \
   build_info.js \
   LICENSE \

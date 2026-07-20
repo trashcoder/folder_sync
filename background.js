@@ -80,14 +80,16 @@ async function* getMessages(folder) {
   }
 }
 
-async function collectMessageIds(folder) {
-  const map = new Map();
+async function collectMessagesByIdentity(folder) {
+  const groups = new Map();
+  let count = 0;
+  let fallbackCount = 0;
   for await (const msg of getMessages(folder)) {
-    if (msg.headerMessageId) {
-      map.set(msg.headerMessageId, msg.id);
-    }
+    MessageMatcher.addMessage(groups, msg);
+    count += 1;
+    if (!String(msg.headerMessageId || "").trim()) fallbackCount += 1;
   }
-  return map;
+  return { groups, count, fallbackCount };
 }
 
 // --- Sync engine (bidirectional) ---
@@ -107,6 +109,10 @@ async function syncFolders(syncId, folderA, folderB, direction = "both") {
   const result = {
     checkedA: 0,
     checkedB: 0,
+    fallbackA: 0,
+    fallbackB: 0,
+    ignoredA: 0,
+    ignoredB: 0,
     copiedAtoB: 0,
     copiedBtoA: 0,
     errors: [],
@@ -115,30 +121,30 @@ async function syncFolders(syncId, folderA, folderB, direction = "both") {
   await appendLog(syncId, "info", `Sync started (${direction}): ${folderA.name} ↔ ${folderB.name}`);
 
   try {
-    const [idsA, idsB] = await Promise.all([
-      collectMessageIds(folderA),
-      collectMessageIds(folderB),
+    const [messagesA, messagesB] = await Promise.all([
+      collectMessagesByIdentity(folderA),
+      collectMessagesByIdentity(folderB),
     ]);
 
-    result.checkedA = idsA.size;
-    result.checkedB = idsB.size;
+    result.checkedA = messagesA.count;
+    result.checkedB = messagesB.count;
+    result.fallbackA = messagesA.fallbackCount;
+    result.fallbackB = messagesB.fallbackCount;
+    result.ignoredA = 0;
+    result.ignoredB = 0;
+
+    if (messagesA.fallbackCount || messagesB.fallbackCount) {
+      await appendLog(syncId, "info", `Fallback matching (no Message-ID): A ${messagesA.fallbackCount}, B ${messagesB.fallbackCount}; ignored: A 0, B 0`);
+    }
 
     let missingInB = [];
     if (direction === "both" || direction === "aToB") {
-      for (const [messageId, tbId] of idsA) {
-        if (!idsB.has(messageId)) {
-          missingInB.push(tbId);
-        }
-      }
+      missingInB = MessageMatcher.missingMessageIds(messagesA.groups, messagesB.groups);
     }
 
     let missingInA = [];
     if (direction === "both" || direction === "bToA") {
-      for (const [messageId, tbId] of idsB) {
-        if (!idsA.has(messageId)) {
-          missingInA.push(tbId);
-        }
-      }
+      missingInA = MessageMatcher.missingMessageIds(messagesB.groups, messagesA.groups);
     }
 
     const totalToCopy = missingInB.length + missingInA.length;

@@ -7,7 +7,7 @@ A Thunderbird add-on that synchronizes email messages between folders across dif
 - **Bidirectional & one-way sync** — Choose between A ↔ B, A → B, or B → A synchronization
 - **Multiple sync configurations** — Set up as many folder pairs as you need
 - **Automatic sync** — Schedule periodic synchronization with configurable intervals (1–1440 minutes)
-- **Deduplication** — Messages are matched by their Message-ID header; duplicates are never created
+- **Deduplication** — Messages are matched by Message-ID and occurrence count. Messages without an ID use a metadata fingerprint (date, subject, sender, recipients, and size); identical fingerprints are compared by count.
 - **Batch processing** — Large folders are handled efficiently with pagination and batch copying
 - **Real-time status** — See sync progress, last sync time, and copied message counts
 - **Localization** — English and German UI
