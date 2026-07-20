@@ -300,7 +300,7 @@ messenger.alarms.onAlarm.addListener(async (alarm) => {
 
 // --- Message handling (popup <-> background) ---
 
-messenger.runtime.onMessage.addListener(async (message) => {
+async function handleRuntimeMessage(message) {
   switch (message.action) {
     case "getAccounts":
       try {
@@ -388,6 +388,17 @@ messenger.runtime.onMessage.addListener(async (message) => {
     default:
       return { error: `Unknown action: ${message.action}` };
   }
+}
+
+messenger.runtime.onMessage.addListener((message, sender, sendResponse) => {
+  handleRuntimeMessage(message)
+    .then(sendResponse)
+    .catch((err) => {
+      console.error("FolderSync: message handling failed:", err);
+      sendResponse({ error: err.message });
+    });
+
+  return true;
 });
 
 console.log("FolderSync background script loaded");
