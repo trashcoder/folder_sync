@@ -364,7 +364,9 @@ async function resolveAndPersistConfig(config, configs) {
       oldFolder.name !== newFolder.name || oldFolder.type !== newFolder.type;
   });
   if (changed) {
-    Object.assign(config, resolved);
+    for (const side of ["A", "B"]) {
+      config[`folder${side}`] = FolderResolver.descriptor(resolved[`folder${side}`]);
+    }
     await saveConfigs(configs);
   }
   return resolved;
@@ -378,8 +380,9 @@ async function refreshConfigFolderReferences(configs) {
       const resolved = await resolveConfigFolders(config, accounts);
       for (const side of ["A", "B"]) {
         const key = `folder${side}`;
-        if (JSON.stringify(config[key]) !== JSON.stringify(resolved[key])) {
-          config[key] = resolved[key];
+        const descriptor = FolderResolver.descriptor(resolved[key]);
+        if (JSON.stringify(config[key]) !== JSON.stringify(descriptor)) {
+          config[key] = descriptor;
           changed = true;
         }
       }
