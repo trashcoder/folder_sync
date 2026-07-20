@@ -14,8 +14,9 @@ test("restores durable results and discards transient progress", () => {
     },
   }, "interrupted");
 
-  assert.equal(restored.cleaned, false);
+  assert.equal(restored.cleaned, true);
   assert.deepEqual(restored.states.get("alpha"), {
+    status: "failed",
     running: false,
     startedAt: null,
     lastSync: "2026-07-20T10:00:00.000Z",
@@ -29,6 +30,7 @@ test("cleans an orphaned running marker after background restart", () => {
   const restored = Store.restore({
     alpha: {
       running: true,
+      status: "running",
       startedAt: "2026-07-20T10:00:00.000Z",
       lastSync: null,
       lastResult: null,
@@ -55,10 +57,35 @@ test("serializes only durable state", () => {
   assert.deepEqual(Store.serialize(states), {
     alpha: {
       running: true,
+      status: "running",
       startedAt: "2026-07-20T10:00:00.000Z",
       lastSync: null,
       lastResult: null,
       error: null,
     },
   });
+});
+
+test("marks a full success explicitly", () => {
+  const state = Store.emptyState();
+  Store.complete(state, { copiedAtoB: 2, copiedBtoA: 1, errors: [] }, null, "2026-07-20T11:00:00.000Z");
+  assert.equal(state.status, Store.STATUS.SUCCESS);
+  assert.equal(state.error, null);
+  assert.equal(state.lastSync, "2026-07-20T11:00:00.000Z");
+});
+
+test("marks batch errors as a visible partial failure", () => {
+  const state = Store.emptyState();
+  Store.complete(state, { copiedAtoB: 2, copiedBtoA: 0, errors: ["A→B batch 50: copy failed"] }, null, "2026-07-20T11:00:00.000Z");
+  assert.equal(state.status, Store.STATUS.PARTIAL_FAILURE);
+  assert.equal(state.error, "A→B batch 50: copy failed");
+  assert.equal(state.lastResult.errors.length, 1);
+});
+
+test("marks fatal errors as failed", () => {
+  const state = Store.emptyState();
+  Store.complete(state, { copiedAtoB: 0, copiedBtoA: 0, errors: ["folder unavailable"], fatal: true }, "folder unavailable", "2026-07-20T11:00:00.000Z");
+  assert.equal(state.status, Store.STATUS.FAILED);
+  assert.equal(state.error, "folder unavailable");
+  assert.equal(state.running, false);
 });

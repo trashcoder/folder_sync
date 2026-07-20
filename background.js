@@ -41,12 +41,26 @@ function setSyncProgress(state, progress) {
 }
 
 function updateCopyProgress(state, direction, completed, total) {
+  const failed = state.progress?.failed || 0;
+  const processed = completed + failed;
   setSyncProgress(state, {
     phase: "copy",
     direction,
     completed,
+    failed,
     total,
-    remaining: Math.max(total - completed, 0),
+    remaining: Math.max(total - processed, 0),
+  });
+}
+
+function updateCopyFailureProgress(state, direction, completed, failed, total) {
+  setSyncProgress(state, {
+    phase: "copy",
+    direction,
+    completed,
+    failed,
+    total,
+    remaining: Math.max(total - completed - failed, 0),
   });
 }
 
@@ -135,6 +149,7 @@ async function syncFolders(syncId, folderA, folderB, direction = "both") {
     copiedAtoB: 0,
     copiedBtoA: 0,
     errors: [],
+    fatal: false,
   };
 
   await appendLog(syncId, "info", `Sync started (${direction}): ${folderA.name} ↔ ${folderB.name}`);
@@ -184,6 +199,7 @@ async function syncFolders(syncId, folderA, folderB, direction = "both") {
         } catch (err) {
           const msg = `A→B batch ${i}: ${err.message}`;
           result.errors.push(msg);
+          updateCopyFailureProgress(state, "aToB", totalCopied, (state.progress?.failed || 0) + batch.length, totalToCopy);
           await appendLog(syncId, "error", msg);
         }
       }
@@ -203,19 +219,18 @@ async function syncFolders(syncId, folderA, folderB, direction = "both") {
         } catch (err) {
           const msg = `B→A batch ${i}: ${err.message}`;
           result.errors.push(msg);
+          updateCopyFailureProgress(state, "bToA", totalCopied, (state.progress?.failed || 0) + batch.length, totalToCopy);
           await appendLog(syncId, "error", msg);
         }
       }
     }
   } catch (err) {
-    state.error = err.message;
+    result.fatal = true;
     result.errors.push(err.message);
     await appendLog(syncId, "error", `Fatal: ${err.message}`);
   }
 
-  state.lastSync = new Date().toISOString();
-  state.lastResult = result;
-  setSyncProgress(state, null);
+  SyncStateStore.complete(state, result, result.fatal ? result.errors[0] : null, new Date().toISOString());
 
   const summary = `Done: A→B ${result.copiedAtoB}, B→A ${result.copiedBtoA}` +
     (result.errors.length ? `, ${result.errors.length} error(s)` : "");
@@ -400,23 +415,24 @@ async function startSyncExclusive(syncId) {
   await syncStatesReady;
   const state = getSyncState(syncId);
   return await SyncLock.runExclusive(state, async () => {
-    state.startedAt = new Date().toISOString();
-    state.error = null;
+    SyncStateStore.start(state, new Date().toISOString());
     await persistSyncStates();
     try {
       try {
         const configs = await loadConfigs();
         const config = configs.find((candidate) => candidate.id === syncId);
         if (!config || !config.folderA || !config.folderB) {
-          return { error: messenger.i18n.getMessage("errorNoFolders") };
+          throw new Error(messenger.i18n.getMessage("errorNoFolders"));
         }
 
         const folders = await resolveAndPersistConfig(config, configs);
         return await syncFolders(syncId, folders.folderA, folders.folderB, config.direction || "both");
       } catch (err) {
-        state.error = err.message;
-        await appendLog(syncId, "error", err.message);
-        return { error: err.message };
+        const result = { copiedAtoB: 0, copiedBtoA: 0, errors: [err.message], fatal: true };
+        SyncStateStore.complete(state, result, err.message, new Date().toISOString());
+        await appendLog(syncId, "error", `Fatal: ${err.message}`);
+        await appendLog(syncId, "error", "Done: A→B 0, B→A 0, 1 error(s)");
+        return result;
       } finally {
         setSyncProgress(state, null);
       }
@@ -442,9 +458,7 @@ messenger.alarms.onAlarm.addListener(async (alarm) => {
   if (!alarm.name.startsWith(ALARM_PREFIX)) return;
 
   const syncId = alarm.name.slice(ALARM_PREFIX.length);
-  const state = getSyncState(syncId);
-  const attempt = await startSyncExclusive(syncId);
-  if (attempt.started && attempt.value?.error) state.error = attempt.value.error;
+  await startSyncExclusive(syncId);
 });
 
 async function updateFolderReferences(originalFolder, updatedFolder) {
@@ -471,7 +485,9 @@ messenger.folders.onDeleted.addListener(async (deletedFolder) => {
     for (const side of ["A", "B"]) {
       const stored = config[`folder${side}`];
       if (stored && (stored.id === deletedFolder.id || stored.path === deletedFolder.path)) {
-        getSyncState(config.id).error = folderResolutionError(side, "not-found");
+        const state = getSyncState(config.id);
+        state.error = folderResolutionError(side, "not-found");
+        state.status = SyncStateStore.STATUS.FAILED;
       }
     }
   }
@@ -573,6 +589,7 @@ async function handleRuntimeMessage(message) {
         }
         states[config.id] = {
           ...state,
+          status: folderError ? SyncStateStore.STATUS.FAILED : state.status,
           error: folderError || state.error,
           folderInvalid: !!folderError,
           autoSyncActive: await isAutoSyncActive(config.id),

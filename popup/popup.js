@@ -342,14 +342,18 @@ function createSyncCard(config, state) {
   card.dataset.syncId = config.id;
 
   // Status class
-  let statusClass = "idle";
+  let statusClass = state.status || "idle";
   let statusText = i18n("statusReady");
-  if (state.running) {
+  if (state.status === "running" || state.running) {
     statusClass = "running";
     statusText = i18n("statusSyncing");
-  } else if (state.error) {
-    statusClass = "error";
-    statusText = state.error;
+  } else if (state.status === "success") {
+    statusText = i18n("statusSuccess");
+  } else if (state.status === "partialFailure") {
+    statusText = i18n("statusPartialFailure");
+  } else if (state.status === "failed" || state.error) {
+    statusClass = "failed";
+    statusText = i18n("statusFailed");
   }
 
   // Last sync info
@@ -465,7 +469,7 @@ function createSyncCard(config, state) {
   editButton.disabled = !!state.running;
 
   const logButton = createButton("btn btn-log btn-sm btn-log-view", i18n("btnLog"));
-  if (state.lastResult?.errors?.length > 0 || state.error) {
+  if (state.status === "partialFailure" || state.status === "failed" || state.lastResult?.errors?.length > 0) {
     const errorBadge = document.createElement("span");
     errorBadge.className = "log-error-badge";
     errorBadge.textContent = "!";
@@ -523,12 +527,13 @@ function getProgressView(progress) {
   const total = Number(progress.total) || 0;
   const completed = Number(progress.completed) || 0;
   const remaining = Number(progress.remaining) || Math.max(total - completed, 0);
-  const percent = total > 0 ? Math.min(Math.round((completed / total) * 100), 100) : 100;
+  const failed = Number(progress.failed) || 0;
+  const percent = total > 0 ? Math.min(Math.round(((completed + failed) / total) * 100), 100) : 100;
 
   return {
     visible: true,
     text: progress.direction ? directionLabel(progress.direction) : i18n("statusSyncing"),
-    count: i18n("progressCount", [completed, total, remaining]),
+    count: progress.failed ? i18n("progressCountWithErrors", [completed, total, remaining, progress.failed]) : i18n("progressCount", [completed, total, remaining]),
     percent,
   };
 }
@@ -612,31 +617,7 @@ async function deleteSync(syncId, name) {
 function startStatusPolling() {
   stopStatusPolling();
   statusPollTimer = setInterval(async () => {
-    const states = await messenger.runtime.sendMessage({ action: "getStatus" });
-    // Update status dots and texts for each card without full re-render
-    for (const [syncId, state] of Object.entries(states)) {
-      const card = els.syncList.querySelector(`[data-sync-id="${syncId}"]`);
-      if (!card) continue;
-
-      const statusDot = card.querySelector(".status-dot");
-      const statusText = card.querySelector(".status-text");
-      const guardedButtons = card.querySelectorAll(".btn-sync, .btn-edit, .btn-delete");
-
-      if (state.running) {
-        statusDot.className = "status-dot running";
-        statusText.textContent = i18n("statusSyncing");
-        for (const btn of guardedButtons) btn.disabled = true;
-      } else if (state.error) {
-        statusDot.className = "status-dot error";
-        statusText.textContent = state.error;
-        for (const btn of guardedButtons) btn.disabled = false;
-      } else {
-        statusDot.className = "status-dot idle";
-        statusText.textContent = i18n("statusReady");
-        for (const btn of guardedButtons) btn.disabled = false;
-      }
-      updateProgress(card, state.progress);
-    }
+    await renderSyncList();
   }, 2000);
 }
 

@@ -77,6 +77,15 @@
   "statusSyncing": {
     "message": "Syncing..."
   },
+  "statusSuccess": {
+    "message": "Completed successfully"
+  },
+  "statusPartialFailure": {
+    "message": "Completed with errors"
+  },
+  "statusFailed": {
+    "message": "Synchronization failed"
+  },
   "progressPreparing": {
     "message": "Comparing messages..."
   },
@@ -93,6 +102,10 @@
         "content": "$3"
       }
     }
+  },
+  "progressCountWithErrors": {
+    "message": "$COMPLETED$ / $TOTAL$ ($REMAINING$ remaining, $FAILED$ failed)",
+    "placeholders": { "completed": { "content": "$1" }, "total": { "content": "$2" }, "remaining": { "content": "$3" }, "failed": { "content": "$4" } }
   },
   "lastSync": {
     "message": "Last sync:"

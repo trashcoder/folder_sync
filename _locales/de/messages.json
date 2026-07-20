@@ -77,6 +77,15 @@
   "statusSyncing": {
     "message": "Synchronisiere..."
   },
+  "statusSuccess": {
+    "message": "Erfolgreich abgeschlossen"
+  },
+  "statusPartialFailure": {
+    "message": "Mit Fehlern abgeschlossen"
+  },
+  "statusFailed": {
+    "message": "Synchronisierung fehlgeschlagen"
+  },
   "progressPreparing": {
     "message": "Nachrichten werden verglichen..."
   },
@@ -93,6 +102,10 @@
         "content": "$3"
       }
     }
+  },
+  "progressCountWithErrors": {
+    "message": "$COMPLETED$ / $TOTAL$ ($REMAINING$ verbleibend, $FAILED$ fehlgeschlagen)",
+    "placeholders": { "completed": { "content": "$1" }, "total": { "content": "$2" }, "remaining": { "content": "$3" }, "failed": { "content": "$4" } }
   },
   "lastSync": {
     "message": "Letzte Sync:"

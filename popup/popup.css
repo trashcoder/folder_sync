@@ -111,7 +111,8 @@ h2 {
   flex-shrink: 0;
 }
 
-.status-dot.idle {
+.status-dot.idle,
+.status-dot.success {
   background: #4caf50;
 }
 
@@ -120,7 +121,12 @@ h2 {
   animation: pulse 1s ease-in-out infinite;
 }
 
-.status-dot.error {
+.status-dot.partialFailure {
+  background: #ff9800;
+}
+
+.status-dot.error,
+.status-dot.failed {
   background: #f44336;
 }
 
