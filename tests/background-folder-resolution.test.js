@@ -15,7 +15,7 @@ function clone(value) {
   return value === undefined ? undefined : structuredClone(value);
 }
 
-function loadRuntime({ configs = [], capabilities = {} } = {}) {
+function loadRuntime({ configs = [], capabilities = {}, specialUses = {} } = {}) {
   let runtimeListener;
   const event = { addListener() {} };
   const storage = { syncConfigs: clone(configs) };
@@ -24,13 +24,23 @@ function loadRuntime({ configs = [], capabilities = {} } = {}) {
       id: "account-a",
       name: "Account A",
       type: "imap",
-      rootFolder: { subFolders: [{ id: "current-a", name: "Folder A", path: "/Folder A" }] },
+      rootFolder: { subFolders: [{
+        id: "current-a",
+        name: "Folder A",
+        path: "/Folder A",
+        specialUse: specialUses["current-a"] || [],
+      }] },
     },
     {
       id: "account-b",
       name: "Account B",
       type: "imap",
-      rootFolder: { subFolders: [{ id: "current-b", name: "Folder B", path: "/Folder B" }] },
+      rootFolder: { subFolders: [{
+        id: "current-b",
+        name: "Folder B",
+        path: "/Folder B",
+        specialUse: specialUses["current-b"] || [],
+      }] },
     },
   ];
 
@@ -105,8 +115,8 @@ function config(direction) {
     name: direction,
     accountA: "account-a",
     accountB: "account-b",
-    folderA: { id: "stored-a", name: "Folder A", path: "/Folder A", type: null },
-    folderB: { id: "stored-b", name: "Folder B", path: "/Folder B", type: null },
+    folderA: { id: "stored-a", name: "Folder A", path: "/Folder A", specialUse: [] },
+    folderB: { id: "stored-b", name: "Folder B", path: "/Folder B", specialUse: [] },
     direction,
     autoSyncEnabled: false,
     autoSyncInterval: 5,
@@ -158,4 +168,44 @@ test("starts an existing configuration with resolved writable folders", async ()
   assert.equal(runtime.storage.syncConfigs[0].folderB.id, "current-b");
   assert.equal("canAddMessages" in runtime.storage.syncConfigs[0].folderA, false);
   assert.equal("canAddMessages" in runtime.storage.syncConfigs[0].folderB, false);
+});
+
+test("migrates legacy folder descriptors only after both folders resolve", async () => {
+  const existing = {
+    ...config("both"),
+    id: "legacy",
+    folderA: { id: "old-a", name: "Folder A", path: "/Moved/Folder A", type: "inbox" },
+    folderB: { id: "old-b", name: "Folder B", path: "/Folder B" },
+  };
+  const runtime = loadRuntime({
+    configs: [existing],
+    capabilities: { "current-a": true, "current-b": true },
+    specialUses: { "current-a": ["inbox"] },
+  });
+
+  const configs = await runtime.send({ action: "getConfigs" });
+
+  assert.deepEqual(configs[0].folderA.specialUse, ["inbox"]);
+  assert.deepEqual(configs[0].folderB.specialUse, []);
+  assert.equal("type" in runtime.storage.syncConfigs[0].folderA, false);
+  assert.equal(runtime.storage.syncConfigs[0].folderA.id, "current-a");
+  assert.equal(runtime.storage.syncConfigs[0].folderB.id, "current-b");
+});
+
+test("keeps a legacy descriptor unchanged when resolution fails", async () => {
+  const existing = {
+    ...config("both"),
+    id: "unresolved-legacy",
+    folderA: { id: "old-a", name: "Missing", path: "/Missing", type: "inbox" },
+  };
+  const runtime = loadRuntime({
+    configs: [existing],
+    capabilities: { "current-a": true, "current-b": true },
+    specialUses: { "current-a": ["inbox"] },
+  });
+
+  await runtime.send({ action: "getConfigs" });
+
+  assert.equal(runtime.storage.syncConfigs[0].folderA.type, "inbox");
+  assert.equal("specialUse" in runtime.storage.syncConfigs[0].folderA, false);
 });

@@ -214,7 +214,7 @@ function populateFolders(side) {
     opt.textContent = folder.path;
     opt.dataset.folderId = folder.id;
     opt.dataset.folderName = folder.name;
-    opt.dataset.folderType = folder.type || "";
+    opt.dataset.folderSpecialUse = JSON.stringify(folder.specialUse || []);
     opt.dataset.canAddMessages = String(folder.canAddMessages === true);
     folderSelect.appendChild(opt);
   }
@@ -276,13 +276,13 @@ async function saveSync() {
       id: folderAOption.value,
       name: folderAOption.dataset.folderName,
       path: folderAOption.textContent,
-      type: folderAOption.dataset.folderType || null,
+      specialUse: JSON.parse(folderAOption.dataset.folderSpecialUse || "[]"),
     },
     folderB: {
       id: folderBOption.value,
       name: folderBOption.dataset.folderName,
       path: folderBOption.textContent,
-      type: folderBOption.dataset.folderType || null,
+      specialUse: JSON.parse(folderBOption.dataset.folderSpecialUse || "[]"),
     },
     direction: els.syncDirection.value,
     autoSyncEnabled: els.autoSyncEnabled.checked,

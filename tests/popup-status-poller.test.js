@@ -90,3 +90,11 @@ test("popup polling refreshes status only and loads the poller before popup code
   assert.doesNotMatch(refreshBody, /getConfigs|renderSyncList/);
   assert.ok(html.indexOf('src="status-poller.js"') < html.indexOf('src="popup.js"'));
 });
+
+test("popup stores specialUse metadata instead of the removed MailFolder type", () => {
+  const popupSource = fs.readFileSync(path.join(__dirname, "../popup/popup.js"), "utf8");
+
+  assert.match(popupSource, /dataset\.folderSpecialUse/);
+  assert.match(popupSource, /specialUse:/);
+  assert.doesNotMatch(popupSource, /dataset\.folderType|folder\.type/);
+});

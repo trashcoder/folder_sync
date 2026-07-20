@@ -313,7 +313,7 @@ function flattenFolders(folders, prefix = "") {
       id: folder.id,
       name: folder.name,
       path: path,
-      type: folder.type,
+      specialUse: FolderResolver.normalizeSpecialUse(folder.specialUse),
     });
     if (folder.subFolders && folder.subFolders.length > 0) {
       result.push(...flattenFolders(folder.subFolders, path));
@@ -384,16 +384,19 @@ function validateResolvedFolders(folderA, folderB, direction) {
 
 async function validateConfig(config) {
   IntervalValidator.assertValid(config.autoSyncInterval);
-  await resolveConfigFolders(config);
+  const resolved = await resolveConfigFolders(config);
+  return {
+    ...config,
+    folderA: FolderResolver.descriptor(resolved.folderA),
+    folderB: FolderResolver.descriptor(resolved.folderB),
+  };
 }
 
 async function resolveAndPersistConfig(config, configs) {
   const resolved = await resolveConfigFolders(config);
   const changed = ["A", "B"].some((side) => {
-    const oldFolder = config[`folder${side}`];
-    const newFolder = resolved[`folder${side}`];
-    return oldFolder.id !== newFolder.id || oldFolder.path !== newFolder.path ||
-      oldFolder.name !== newFolder.name || oldFolder.type !== newFolder.type;
+    const descriptor = FolderResolver.descriptor(resolved[`folder${side}`]);
+    return JSON.stringify(config[`folder${side}`]) !== JSON.stringify(descriptor);
   });
   if (changed) {
     for (const side of ["A", "B"]) {
@@ -611,8 +614,7 @@ async function handleRuntimeMessage(message) {
 
     case "addConfig": {
       const configs = await loadConfigs();
-      const newConfig = { ...message.config, id: generateId() };
-      await validateConfig(newConfig);
+      const newConfig = await validateConfig({ ...message.config, id: generateId() });
       const nextConfigs = [...configs, newConfig];
       return await ConfigAlarmStore.saveWithAlarm(
         newConfig, configs, nextConfigs, configAlarmDependencies()
@@ -624,11 +626,11 @@ async function handleRuntimeMessage(message) {
         const configs = await loadConfigs();
         const idx = configs.findIndex((c) => c.id === message.config.id);
         if (idx === -1) return { error: "Config not found" };
-        await validateConfig(message.config);
+        const updatedConfig = await validateConfig(message.config);
         const nextConfigs = configs.slice();
-        nextConfigs[idx] = message.config;
+        nextConfigs[idx] = updatedConfig;
         await ConfigAlarmStore.saveWithAlarm(
-          message.config, configs, nextConfigs, configAlarmDependencies()
+          updatedConfig, configs, nextConfigs, configAlarmDependencies()
         );
         return { ok: true };
       });

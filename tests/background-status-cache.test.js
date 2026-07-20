@@ -42,8 +42,8 @@ function loadRuntime() {
     name: "Cached sync",
     accountA: "account-a",
     accountB: "account-b",
-    folderA: { id: "folder-a", name: "A", path: "/A", type: null },
-    folderB: { id: "folder-b", name: "B", path: "/B", type: null },
+    folderA: { id: "folder-a", name: "A", path: "/A", specialUse: [] },
+    folderB: { id: "folder-b", name: "B", path: "/B", specialUse: [] },
     direction: "both",
     autoSyncEnabled: true,
     autoSyncInterval: 5,
@@ -54,13 +54,13 @@ function loadRuntime() {
       id: "account-a",
       name: "Account A",
       type: "imap",
-      rootFolder: { subFolders: [{ id: "folder-a", name: "A", path: "/A" }] },
+      rootFolder: { subFolders: [{ id: "folder-a", name: "A", path: "/A", specialUse: [] }] },
     },
     {
       id: "account-b",
       name: "Account B",
       type: "imap",
-      rootFolder: { subFolders: [{ id: "folder-b", name: "B", path: "/B" }] },
+      rootFolder: { subFolders: [{ id: "folder-b", name: "B", path: "/B", specialUse: [] }] },
     },
   ];
   const noOpEvent = { addListener() {} };
@@ -160,7 +160,9 @@ test("status polling does not scan accounts, capabilities, or individual alarms"
 test("account data is cached, force-refreshed, and invalidated by structure events", async () => {
   const runtime = loadRuntime();
 
-  await runtime.send({ action: "getAccounts" });
+  const initialAccounts = await runtime.send({ action: "getAccounts" });
+  assert.deepEqual(initialAccounts[0].folders[0].specialUse, []);
+  assert.equal("type" in initialAccounts[0].folders[0], false);
   await runtime.send({ action: "getAccounts" });
   assert.equal(runtime.counters.accountLists, 1);
   assert.equal(runtime.counters.capabilityReads, 2);
@@ -193,7 +195,7 @@ test("folder event validation errors stay current without status-time rescans", 
   assert.equal(invalid["sync-1"].status, "failed");
 
   runtime.accounts[1].rootFolder.subFolders = [
-    { id: "folder-b-new", name: "B", path: "/B" },
+    { id: "folder-b-new", name: "B", path: "/B", specialUse: [] },
   ];
   await runtime.events.folderCreated.emit({ id: "folder-b-new", path: "/B" });
   const healed = await runtime.send({ action: "getStatus" });
