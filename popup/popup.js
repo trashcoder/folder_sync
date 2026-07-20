@@ -85,10 +85,10 @@ async function showEditView(syncId) {
   // Reset form
   els.syncName.value = "";
   els.accountA.value = "";
-  els.folderA.innerHTML = `<option value="">${i18n("selectFolder")}</option>`;
+  setPlaceholderOption(els.folderA, "selectFolder");
   els.folderA.disabled = true;
   els.accountB.value = "";
-  els.folderB.innerHTML = `<option value="">${i18n("selectFolder")}</option>`;
+  setPlaceholderOption(els.folderB, "selectFolder");
   els.folderB.disabled = true;
   els.syncDirection.value = "both";
   els.autoSyncEnabled.checked = false;
@@ -135,7 +135,7 @@ async function showLogView(syncId, syncName) {
 
 async function renderLog(syncId) {
   const entries = await messenger.runtime.sendMessage({ action: "getLog", syncId });
-  els.logEntries.innerHTML = "";
+  els.logEntries.replaceChildren();
   if (!entries || entries.length === 0) {
     els.logEmpty.classList.remove("hidden");
     return;
@@ -143,9 +143,19 @@ async function renderLog(syncId) {
   els.logEmpty.classList.add("hidden");
   for (const entry of [...entries].reverse()) {
     const row = document.createElement("div");
-    row.className = `log-entry log-entry-${entry.level}`;
+    const level = entry.level === "error" ? "error" : "info";
+    row.className = `log-entry log-entry-${level}`;
     const time = new Date(entry.ts).toLocaleString();
-    row.innerHTML = `<span class="log-ts">${escapeHtml(time)}</span><span class="log-msg">${escapeHtml(entry.message)}</span>`;
+
+    const timeEl = document.createElement("span");
+    timeEl.className = "log-ts";
+    timeEl.textContent = time;
+
+    const messageEl = document.createElement("span");
+    messageEl.className = "log-msg";
+    messageEl.textContent = entry.message;
+
+    row.append(timeEl, messageEl);
     els.logEntries.appendChild(row);
   }
 }
@@ -173,7 +183,7 @@ async function loadAccounts() {
 }
 
 function populateAccountDropdown(select, accounts) {
-  select.innerHTML = `<option value="">${i18n("selectAccount")}</option>`;
+  setPlaceholderOption(select, "selectAccount");
   for (const account of accounts) {
     const opt = document.createElement("option");
     opt.value = account.id;
@@ -187,7 +197,7 @@ function populateFolders(side) {
   const folderSelect = side === "A" ? els.folderA : els.folderB;
   const accountId = accountSelect.value;
 
-  folderSelect.innerHTML = `<option value="">${i18n("selectFolder")}</option>`;
+  setPlaceholderOption(folderSelect, "selectFolder");
 
   if (!accountId) {
     folderSelect.disabled = true;
@@ -207,6 +217,13 @@ function populateFolders(side) {
   }
 
   folderSelect.disabled = false;
+}
+
+function setPlaceholderOption(select, messageName) {
+  const opt = document.createElement("option");
+  opt.value = "";
+  opt.textContent = i18n(messageName);
+  select.replaceChildren(opt);
 }
 
 // --- Save sync config ---
@@ -278,7 +295,7 @@ async function renderSyncList() {
   ]);
 
   els.emptyState.classList.toggle("hidden", configs.length > 0);
-  els.syncList.innerHTML = "";
+  els.syncList.replaceChildren();
 
   for (const config of configs) {
     const state = states[config.id] || {};
@@ -319,52 +336,127 @@ function createSyncCard(config, state) {
     }
   }
 
-  // Auto-sync badge
-  const autoSyncBadge = state.autoSyncActive
-    ? `<span class="badge badge-auto">Auto ${config.autoSyncInterval}min</span>`
-    : "";
   const progress = getProgressView(state.progress);
 
-  card.innerHTML = `
-    <div class="sync-card-header">
-      <div class="sync-card-title">${escapeHtml(config.name || i18n("unnamed"))}</div>
-      ${autoSyncBadge}
-    </div>
-    <div class="sync-card-folders">
-      <span>${escapeHtml(syncEndpoint(config, "A"))}</span>
-      <span class="sync-card-arrow">${directionArrow(config.direction)}</span>
-      <span>${escapeHtml(syncEndpoint(config, "B"))}</span>
-    </div>
-    <div class="sync-card-status">
-      <span class="status-dot ${statusClass}"></span>
-      <span class="status-text">${escapeHtml(statusText)}</span>
-    </div>
-    <div class="sync-progress ${progress.visible ? "" : "hidden"}">
-      <div class="sync-progress-row">
-        <span class="sync-progress-text">${escapeHtml(progress.text)}</span>
-        <span class="sync-progress-count">${escapeHtml(progress.count)}</span>
-      </div>
-      <div class="sync-progress-bar" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="${progress.percent}">
-        <div class="sync-progress-fill" style="width: ${progress.percent}%"></div>
-      </div>
-    </div>
-    ${lastSyncText ? `<div class="sync-card-meta">${i18n("lastSync")} ${lastSyncText}</div>` : ""}
-    ${resultText ? `<div class="sync-card-meta">${escapeHtml(resultText)}</div>` : ""}
-    <div class="sync-card-actions">
-      <button class="btn btn-primary btn-sm btn-sync" ${state.running ? "disabled" : ""}>${i18n("btnStartSync")}</button>
-      <button class="btn btn-secondary btn-sm btn-edit">${i18n("btnEdit")}</button>
-      <button class="btn btn-log btn-sm btn-log-view">${i18n("btnLog")}${state.lastResult?.errors?.length > 0 || state.error ? ' <span class="log-error-badge">!</span>' : ""}</button>
-      <button class="btn btn-danger btn-sm btn-delete">${i18n("btnDelete")}</button>
-    </div>
-  `;
+  const header = document.createElement("div");
+  header.className = "sync-card-header";
+
+  const title = document.createElement("div");
+  title.className = "sync-card-title";
+  title.textContent = config.name || i18n("unnamed");
+  header.appendChild(title);
+
+  if (state.autoSyncActive) {
+    const autoSyncBadge = document.createElement("span");
+    autoSyncBadge.className = "badge badge-auto";
+    autoSyncBadge.textContent = `Auto ${config.autoSyncInterval}min`;
+    header.appendChild(autoSyncBadge);
+  }
+
+  const folders = document.createElement("div");
+  folders.className = "sync-card-folders";
+
+  const endpointA = document.createElement("span");
+  endpointA.textContent = syncEndpoint(config, "A");
+
+  const arrow = document.createElement("span");
+  arrow.className = "sync-card-arrow";
+  arrow.textContent = directionArrow(config.direction);
+
+  const endpointB = document.createElement("span");
+  endpointB.textContent = syncEndpoint(config, "B");
+  folders.append(endpointA, arrow, endpointB);
+
+  const status = document.createElement("div");
+  status.className = "sync-card-status";
+
+  const statusDot = document.createElement("span");
+  statusDot.className = `status-dot ${statusClass}`;
+
+  const statusTextEl = document.createElement("span");
+  statusTextEl.className = "status-text";
+  statusTextEl.textContent = statusText;
+  status.append(statusDot, statusTextEl);
+
+  const progressEl = document.createElement("div");
+  progressEl.className = "sync-progress";
+  progressEl.classList.toggle("hidden", !progress.visible);
+
+  const progressRow = document.createElement("div");
+  progressRow.className = "sync-progress-row";
+
+  const progressText = document.createElement("span");
+  progressText.className = "sync-progress-text";
+  progressText.textContent = progress.text;
+
+  const progressCount = document.createElement("span");
+  progressCount.className = "sync-progress-count";
+  progressCount.textContent = progress.count;
+  progressRow.append(progressText, progressCount);
+
+  const progressBar = document.createElement("div");
+  progressBar.className = "sync-progress-bar";
+  progressBar.setAttribute("role", "progressbar");
+  progressBar.setAttribute("aria-valuemin", "0");
+  progressBar.setAttribute("aria-valuemax", "100");
+  progressBar.setAttribute("aria-valuenow", progress.percent.toString());
+
+  const progressFill = document.createElement("div");
+  progressFill.className = "sync-progress-fill";
+  progressFill.style.width = `${progress.percent}%`;
+  progressBar.appendChild(progressFill);
+  progressEl.append(progressRow, progressBar);
+
+  card.append(header, folders, status, progressEl);
+
+  if (lastSyncText) {
+    const lastSync = document.createElement("div");
+    lastSync.className = "sync-card-meta";
+    lastSync.textContent = `${i18n("lastSync")} ${lastSyncText}`;
+    card.appendChild(lastSync);
+  }
+
+  if (resultText) {
+    const result = document.createElement("div");
+    result.className = "sync-card-meta";
+    result.textContent = resultText;
+    card.appendChild(result);
+  }
+
+  const actions = document.createElement("div");
+  actions.className = "sync-card-actions";
+
+  const syncButton = createButton("btn btn-primary btn-sm btn-sync", i18n("btnStartSync"));
+  syncButton.disabled = !!state.running;
+
+  const editButton = createButton("btn btn-secondary btn-sm btn-edit", i18n("btnEdit"));
+
+  const logButton = createButton("btn btn-log btn-sm btn-log-view", i18n("btnLog"));
+  if (state.lastResult?.errors?.length > 0 || state.error) {
+    const errorBadge = document.createElement("span");
+    errorBadge.className = "log-error-badge";
+    errorBadge.textContent = "!";
+    logButton.append(" ", errorBadge);
+  }
+
+  const deleteButton = createButton("btn btn-danger btn-sm btn-delete", i18n("btnDelete"));
+  actions.append(syncButton, editButton, logButton, deleteButton);
+  card.appendChild(actions);
 
   // Event listeners
-  card.querySelector(".btn-sync").addEventListener("click", () => startSync(config.id));
-  card.querySelector(".btn-edit").addEventListener("click", () => showEditView(config.id));
-  card.querySelector(".btn-log-view").addEventListener("click", () => showLogView(config.id, config.name || i18n("unnamed")));
-  card.querySelector(".btn-delete").addEventListener("click", () => deleteSync(config.id, config.name));
+  syncButton.addEventListener("click", () => startSync(config.id));
+  editButton.addEventListener("click", () => showEditView(config.id));
+  logButton.addEventListener("click", () => showLogView(config.id, config.name || i18n("unnamed")));
+  deleteButton.addEventListener("click", () => deleteSync(config.id, config.name));
 
   return card;
+}
+
+function createButton(className, label) {
+  const button = document.createElement("button");
+  button.className = className;
+  button.textContent = label;
+  return button;
 }
 
 function syncEndpoint(config, side) {
@@ -433,12 +525,6 @@ function directionArrow(direction) {
   if (direction === "aToB") return "→";
   if (direction === "bToA") return "←";
   return "↔";
-}
-
-function escapeHtml(str) {
-  const div = document.createElement("div");
-  div.textContent = str;
-  return div.innerHTML;
 }
 
 // --- Sync actions ---
