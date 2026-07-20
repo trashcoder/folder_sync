@@ -216,7 +216,7 @@ async function getAccountsWithFolders() {
 function flattenFolders(folders, prefix = "") {
   const result = [];
   for (const folder of folders) {
-    const path = prefix ? `${prefix}/${folder.name}` : folder.name;
+    const path = folder.path || (prefix ? `${prefix}/${folder.name}` : folder.name);
     result.push({
       id: folder.id,
       name: folder.name,
@@ -259,6 +259,60 @@ function generateId() {
   return Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
 }
 
+function folderResolutionError(side, reason) {
+  const key = reason === "ambiguous" ? "errorFolderAmbiguous" : "errorFolderNotFound";
+  return messenger.i18n.getMessage(key, [side]);
+}
+
+async function resolveConfigFolders(config, accounts = null) {
+  const currentAccounts = accounts || await getAccountsWithFolders();
+  const resolved = {};
+  for (const side of ["A", "B"]) {
+    const account = currentAccounts.find((item) => item.id === config[`account${side}`]);
+    if (!account) throw new Error(messenger.i18n.getMessage("errorAccountNotFound", [side]));
+    const result = FolderResolver.resolveFolder(config[`folder${side}`], account.folders);
+    if (!result.folder) throw new Error(folderResolutionError(side, result.error));
+    resolved[`folder${side}`] = result.folder;
+  }
+  return resolved;
+}
+
+async function resolveAndPersistConfig(config, configs) {
+  const resolved = await resolveConfigFolders(config);
+  const changed = ["A", "B"].some((side) => {
+    const oldFolder = config[`folder${side}`];
+    const newFolder = resolved[`folder${side}`];
+    return oldFolder.id !== newFolder.id || oldFolder.path !== newFolder.path ||
+      oldFolder.name !== newFolder.name || oldFolder.type !== newFolder.type;
+  });
+  if (changed) {
+    Object.assign(config, resolved);
+    await saveConfigs(configs);
+  }
+  return resolved;
+}
+
+async function refreshConfigFolderReferences(configs) {
+  const accounts = await getAccountsWithFolders();
+  let changed = false;
+  for (const config of configs) {
+    try {
+      const resolved = await resolveConfigFolders(config, accounts);
+      for (const side of ["A", "B"]) {
+        const key = `folder${side}`;
+        if (JSON.stringify(config[key]) !== JSON.stringify(resolved[key])) {
+          config[key] = resolved[key];
+          changed = true;
+        }
+      }
+    } catch (err) {
+      // Keep the persisted reference so the edit view can show the invalid config.
+    }
+  }
+  if (changed) await saveConfigs(configs);
+  return configs;
+}
+
 // --- Auto-sync via alarms (per-sync) ---
 
 function alarmName(syncId) {
@@ -292,9 +346,40 @@ messenger.alarms.onAlarm.addListener(async (alarm) => {
   if (!config || !config.folderA || !config.folderB) return;
 
   try {
-    await syncFolders(syncId, config.folderA, config.folderB, config.direction || "both");
+    const folders = await resolveAndPersistConfig(config, configs);
+    await syncFolders(syncId, folders.folderA, folders.folderB, config.direction || "both");
   } catch (err) {
     state.error = err.message;
+  }
+});
+
+async function updateFolderReferences(originalFolder, updatedFolder) {
+  const configs = await loadConfigs();
+  let changed = false;
+  for (const config of configs) {
+    for (const side of ["A", "B"]) {
+      const stored = config[`folder${side}`];
+      if (stored && (stored.id === originalFolder.id || stored.path === originalFolder.path)) {
+        config[`folder${side}`] = FolderResolver.descriptor(updatedFolder);
+        getSyncState(config.id).error = null;
+        changed = true;
+      }
+    }
+  }
+  if (changed) await saveConfigs(configs);
+}
+
+messenger.folders.onMoved.addListener(updateFolderReferences);
+messenger.folders.onRenamed.addListener(updateFolderReferences);
+messenger.folders.onDeleted.addListener(async (deletedFolder) => {
+  const configs = await loadConfigs();
+  for (const config of configs) {
+    for (const side of ["A", "B"]) {
+      const stored = config[`folder${side}`];
+      if (stored && (stored.id === deletedFolder.id || stored.path === deletedFolder.path)) {
+        getSyncState(config.id).error = folderResolutionError(side, "not-found");
+      }
+    }
   }
 });
 
@@ -310,8 +395,14 @@ async function handleRuntimeMessage(message) {
         return [];
       }
 
-    case "getConfigs":
-      return await loadConfigs();
+    case "getConfigs": {
+      const configs = await loadConfigs();
+      try {
+        return await refreshConfigFolderReferences(configs);
+      } catch (err) {
+        return configs;
+      }
+    }
 
     case "addConfig": {
       const configs = await loadConfigs();
@@ -351,7 +442,15 @@ async function handleRuntimeMessage(message) {
       if (!config || !config.folderA || !config.folderB) {
         return { error: messenger.i18n.getMessage("errorNoFolders") };
       }
-      const result = await syncFolders(syncId, config.folderA, config.folderB, config.direction || "both");
+      let folders;
+      try {
+        folders = await resolveAndPersistConfig(config, configs);
+      } catch (err) {
+        state.error = err.message;
+        await appendLog(syncId, "error", err.message);
+        return { error: err.message };
+      }
+      const result = await syncFolders(syncId, folders.folderA, folders.folderB, config.direction || "both");
       return result;
     }
 
@@ -367,11 +466,27 @@ async function handleRuntimeMessage(message) {
 
     case "getStatus": {
       const configs = await loadConfigs();
+      let accounts;
+      try {
+        accounts = await getAccountsWithFolders();
+      } catch (err) {
+        accounts = null;
+      }
       const states = {};
       for (const config of configs) {
         const state = getSyncState(config.id);
+        let folderError = null;
+        if (accounts && !state.running) {
+          try {
+            await resolveConfigFolders(config, accounts);
+          } catch (err) {
+            folderError = err.message;
+          }
+        }
         states[config.id] = {
           ...state,
+          error: folderError || state.error,
+          folderInvalid: !!folderError,
           autoSyncActive: await isAutoSyncActive(config.id),
         };
       }
