@@ -1,6 +1,6 @@
-# CLAUDE.md
+# AGENTS.md
 
-This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+This file provides guidance to Codex (Codex.ai/code) when working with code in this repository.
 
 ## What this is
 
@@ -43,7 +43,7 @@ All communication uses `messenger.runtime.sendMessage`. Supported actions:
 
 ### Sync logic
 
-Messages are grouped by `headerMessageId` and occurrence count. For messages without a Message-ID, `message-matcher.js` builds a stable metadata fingerprint. `collectMessagesByIdentity` pages through all messages in a folder (using `messenger.messages.continueList` for pagination), and surplus occurrences are copied in batches of 50 via `messenger.messages.copy`.
+Deduplication is by `headerMessageId`. `collectMessageIds` pages through all messages in a folder (using `messenger.messages.continueList` for pagination) and builds a `Map<headerMessageId, thunderbirdMessageId>`. Missing messages are copied in batches of 50 via `messenger.messages.copy`.
 
 Directions: `"both"` (bidirectional), `"aToB"`, `"bToA"`.
 
