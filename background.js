@@ -241,7 +241,40 @@ async function syncFolders(syncId, folderA, folderB, direction = "both") {
 
 // --- Account & folder helpers ---
 
-async function getAccountsWithFolders() {
+let accountsWithFoldersCache = null;
+let accountsWithFoldersRequest = null;
+let accountsCacheGeneration = 0;
+const folderValidationErrors = new Map();
+
+function invalidateAccountsWithFolders() {
+  accountsWithFoldersCache = null;
+  accountsCacheGeneration += 1;
+}
+
+async function getAccountsWithFolders(forceRefresh = false) {
+  if (forceRefresh) invalidateAccountsWithFolders();
+  if (accountsWithFoldersCache) return accountsWithFoldersCache;
+
+  const generation = accountsCacheGeneration;
+  if (!accountsWithFoldersRequest) {
+    accountsWithFoldersRequest = loadAccountsWithFolders();
+    try {
+      const accounts = await accountsWithFoldersRequest;
+      if (generation === accountsCacheGeneration) accountsWithFoldersCache = accounts;
+    } finally {
+      accountsWithFoldersRequest = null;
+    }
+  } else {
+    await accountsWithFoldersRequest;
+  }
+
+  if (generation !== accountsCacheGeneration || !accountsWithFoldersCache) {
+    return await getAccountsWithFolders();
+  }
+  return accountsWithFoldersCache;
+}
+
+async function loadAccountsWithFolders() {
   const accounts = await messenger.accounts.list(true);
   return await Promise.all(accounts
     .filter((account) => account.type !== "none" && account.type !== "nntp")
@@ -377,6 +410,16 @@ async function refreshConfigFolderReferences(configs) {
   for (const config of configs) {
     try {
       const resolved = await resolveConfigFolders(config, accounts);
+      const previousFolderError = folderValidationErrors.get(config.id);
+      folderValidationErrors.delete(config.id);
+      const state = getSyncState(config.id);
+      if (previousFolderError && state.error === previousFolderError) {
+        const resultErrors = state.lastResult?.errors || [];
+        state.error = resultErrors[0] || null;
+        state.status = !state.lastResult ? SyncStateStore.STATUS.IDLE :
+          (state.lastResult.fatal ? SyncStateStore.STATUS.FAILED :
+            (resultErrors.length ? SyncStateStore.STATUS.PARTIAL_FAILURE : SyncStateStore.STATUS.SUCCESS));
+      }
       for (const side of ["A", "B"]) {
         const key = `folder${side}`;
         const descriptor = FolderResolver.descriptor(resolved[key]);
@@ -386,6 +429,7 @@ async function refreshConfigFolderReferences(configs) {
         }
       }
     } catch (err) {
+      folderValidationErrors.set(config.id, err.message);
       // Keep the persisted reference so the edit view can show the invalid config.
     }
   }
@@ -394,6 +438,8 @@ async function refreshConfigFolderReferences(configs) {
 }
 
 // --- Auto-sync via alarms (per-sync) ---
+
+const activeAutoSyncIds = new Set();
 
 function alarmName(syncId) {
   return ALARM_PREFIX + syncId;
@@ -404,15 +450,12 @@ async function startAutoSync(syncId, intervalMinutes) {
   await messenger.alarms.create(alarmName(syncId), {
     periodInMinutes: intervalMinutes,
   });
+  activeAutoSyncIds.add(syncId);
 }
 
 async function stopAutoSync(syncId) {
   await messenger.alarms.clear(alarmName(syncId));
-}
-
-async function isAutoSyncActive(syncId) {
-  const alarm = await messenger.alarms.get(alarmName(syncId));
-  return !!alarm;
+  activeAutoSyncIds.delete(syncId);
 }
 
 function configAlarmDependencies() {
@@ -428,7 +471,12 @@ function configAlarmDependencies() {
 
 const configAlarmsReady = (async () => {
   try {
-    await ConfigAlarmStore.reconcile(await loadConfigs(), configAlarmDependencies());
+    const configs = await loadConfigs();
+    await ConfigAlarmStore.reconcile(configs, configAlarmDependencies());
+    activeAutoSyncIds.clear();
+    for (const config of configs) {
+      if (config.autoSyncEnabled) activeAutoSyncIds.add(config.id);
+    }
   } catch {
     console.error("FolderSync: failed to reconcile automatic sync alarms");
   }
@@ -493,6 +541,7 @@ async function updateFolderReferences(originalFolder, updatedFolder) {
       if (stored && (stored.id === originalFolder.id || stored.path === originalFolder.path)) {
         config[`folder${side}`] = FolderResolver.descriptor(updatedFolder);
         getSyncState(config.id).error = null;
+        folderValidationErrors.delete(config.id);
         changed = true;
       }
     }
@@ -500,17 +549,38 @@ async function updateFolderReferences(originalFolder, updatedFolder) {
   if (changed) await saveConfigs(configs);
 }
 
-messenger.folders.onMoved.addListener(updateFolderReferences);
-messenger.folders.onRenamed.addListener(updateFolderReferences);
+async function refreshFolderStructure() {
+  invalidateAccountsWithFolders();
+  const configs = await loadConfigs();
+  await refreshConfigFolderReferences(configs);
+}
+
+async function handleFolderReferenceUpdate(originalFolder, updatedFolder) {
+  invalidateAccountsWithFolders();
+  await updateFolderReferences(originalFolder, updatedFolder);
+  await refreshConfigFolderReferences(await loadConfigs());
+}
+
+messenger.accounts?.onCreated?.addListener(refreshFolderStructure);
+messenger.accounts?.onDeleted?.addListener(refreshFolderStructure);
+messenger.accounts?.onUpdated?.addListener(refreshFolderStructure);
+messenger.folders.onCopied?.addListener(refreshFolderStructure);
+messenger.folders.onCreated?.addListener(refreshFolderStructure);
+messenger.folders.onUpdated?.addListener(refreshFolderStructure);
+messenger.folders.onMoved.addListener(handleFolderReferenceUpdate);
+messenger.folders.onRenamed.addListener(handleFolderReferenceUpdate);
 messenger.folders.onDeleted.addListener(async (deletedFolder) => {
+  invalidateAccountsWithFolders();
   const configs = await loadConfigs();
   for (const config of configs) {
     for (const side of ["A", "B"]) {
       const stored = config[`folder${side}`];
       if (stored && (stored.id === deletedFolder.id || stored.path === deletedFolder.path)) {
         const state = getSyncState(config.id);
-        state.error = folderResolutionError(side, "not-found");
+        const error = folderResolutionError(side, "not-found");
+        state.error = error;
         state.status = SyncStateStore.STATUS.FAILED;
+        folderValidationErrors.set(config.id, error);
       }
     }
   }
@@ -524,7 +594,7 @@ async function handleRuntimeMessage(message) {
   switch (message.action) {
     case "getAccounts":
       try {
-        return await getAccountsWithFolders();
+        return await getAccountsWithFolders(message.refresh === true);
       } catch {
         console.error("FolderSync: failed to get accounts");
         return [];
@@ -572,6 +642,7 @@ async function handleRuntimeMessage(message) {
         await stopAutoSync(message.syncId);
         await clearLog(message.syncId);
         syncStates.delete(message.syncId);
+        folderValidationErrors.delete(message.syncId);
         await persistSyncStates();
         return { ok: true };
       });
@@ -598,29 +669,16 @@ async function handleRuntimeMessage(message) {
 
     case "getStatus": {
       const configs = await loadConfigs();
-      let accounts;
-      try {
-        accounts = await getAccountsWithFolders();
-      } catch (err) {
-        accounts = null;
-      }
       const states = {};
       for (const config of configs) {
         const state = getSyncState(config.id);
-        let folderError = null;
-        if (accounts && !state.running) {
-          try {
-            await resolveConfigFolders(config, accounts);
-          } catch (err) {
-            folderError = err.message;
-          }
-        }
+        const folderError = state.running ? null : folderValidationErrors.get(config.id);
         states[config.id] = {
           ...state,
           status: folderError ? SyncStateStore.STATUS.FAILED : state.status,
           error: folderError || state.error,
           folderInvalid: !!folderError,
-          autoSyncActive: await isAutoSyncActive(config.id),
+          autoSyncActive: activeAutoSyncIds.has(config.id),
         };
       }
       return states;

@@ -30,7 +30,7 @@ const els = {
 
 let accountsData = [];
 let editingSyncId = null; // null = new, string = editing existing
-let statusPollTimer = null;
+const statusPoller = StatusPoller.create(refreshSyncStatuses, 2000);
 
 // --- i18n helper ---
 
@@ -95,6 +95,7 @@ async function showEditView(syncId) {
   els.autoSyncEnabled.checked = false;
   els.autoSyncInterval.value = "5";
 
+  await loadAccounts(true);
   populateAccountDropdown(els.accountA, accountsData);
   populateAccountDropdown(els.accountB, accountsData);
 
@@ -169,9 +170,9 @@ async function clearCurrentLog() {
 
 // --- Load accounts & folders ---
 
-async function loadAccounts() {
+async function loadAccounts(refresh = false) {
   try {
-    accountsData = await messenger.runtime.sendMessage({ action: "getAccounts" });
+    accountsData = await messenger.runtime.sendMessage({ action: "getAccounts", refresh });
     if (!Array.isArray(accountsData)) {
       console.warn("FolderSync popup: account response is not an array");
       accountsData = [];
@@ -308,10 +309,8 @@ async function saveSync() {
 // --- Render sync list ---
 
 async function renderSyncList() {
-  const [configs, states] = await Promise.all([
-    messenger.runtime.sendMessage({ action: "getConfigs" }),
-    messenger.runtime.sendMessage({ action: "getStatus" }),
-  ]);
+  const configs = await messenger.runtime.sendMessage({ action: "getConfigs" });
+  const states = await messenger.runtime.sendMessage({ action: "getStatus" });
 
   els.emptyState.classList.toggle("hidden", configs.length > 0);
   els.syncList.replaceChildren();
@@ -323,41 +322,17 @@ async function renderSyncList() {
   }
 }
 
+async function refreshSyncStatuses() {
+  const states = await messenger.runtime.sendMessage({ action: "getStatus" });
+  for (const card of els.syncList.querySelectorAll(".sync-card")) {
+    updateSyncCardStatus(card, states[card.dataset.syncId] || {});
+  }
+}
+
 function createSyncCard(config, state) {
   const card = document.createElement("div");
   card.className = "sync-card";
   card.dataset.syncId = config.id;
-
-  // Status class
-  let statusClass = state.status || "idle";
-  let statusText = i18n("statusReady");
-  if (state.status === "running" || state.running) {
-    statusClass = "running";
-    statusText = i18n("statusSyncing");
-  } else if (state.status === "success") {
-    statusText = i18n("statusSuccess");
-  } else if (state.status === "partialFailure") {
-    statusText = i18n("statusPartialFailure");
-  } else if (state.status === "failed" || state.error) {
-    statusClass = "failed";
-    statusText = i18n("statusFailed");
-  }
-
-  // Last sync info
-  let lastSyncText = "";
-  if (state.lastSync) {
-    lastSyncText = new Date(state.lastSync).toLocaleString();
-  }
-
-  // Result info
-  let resultText = "";
-  if (state.lastResult) {
-    const r = state.lastResult;
-    resultText = `A→B: ${r.copiedAtoB} | B→A: ${r.copiedBtoA}`;
-    if (r.errors && r.errors.length > 0) {
-      resultText += ` | ${i18n("errorCount", [r.errors.length])}`;
-    }
-  }
 
   const progress = getProgressView(state.progress);
 
@@ -369,12 +344,10 @@ function createSyncCard(config, state) {
   title.textContent = config.name || i18n("unnamed");
   header.appendChild(title);
 
-  if (state.autoSyncActive) {
-    const autoSyncBadge = document.createElement("span");
-    autoSyncBadge.className = "badge badge-auto";
-    autoSyncBadge.textContent = `Auto ${config.autoSyncInterval}min`;
-    header.appendChild(autoSyncBadge);
-  }
+  const autoSyncBadge = document.createElement("span");
+  autoSyncBadge.className = "badge badge-auto hidden";
+  autoSyncBadge.textContent = `Auto ${config.autoSyncInterval}min`;
+  header.appendChild(autoSyncBadge);
 
   const folders = document.createElement("div");
   folders.className = "sync-card-folders";
@@ -394,11 +367,10 @@ function createSyncCard(config, state) {
   status.className = "sync-card-status";
 
   const statusDot = document.createElement("span");
-  statusDot.className = `status-dot ${statusClass}`;
+  statusDot.className = "status-dot";
 
   const statusTextEl = document.createElement("span");
   statusTextEl.className = "status-text";
-  statusTextEl.textContent = statusText;
   status.append(statusDot, statusTextEl);
 
   const progressEl = document.createElement("div");
@@ -432,41 +404,28 @@ function createSyncCard(config, state) {
 
   card.append(header, folders, status, progressEl);
 
-  if (lastSyncText) {
-    const lastSync = document.createElement("div");
-    lastSync.className = "sync-card-meta";
-    lastSync.textContent = `${i18n("lastSync")} ${lastSyncText}`;
-    card.appendChild(lastSync);
-  }
+  const lastSync = document.createElement("div");
+  lastSync.className = "sync-card-meta sync-card-last-sync hidden";
+  card.appendChild(lastSync);
 
-  if (resultText) {
-    const result = document.createElement("div");
-    result.className = "sync-card-meta";
-    result.textContent = resultText;
-    card.appendChild(result);
-  }
+  const result = document.createElement("div");
+  result.className = "sync-card-meta sync-card-result hidden";
+  card.appendChild(result);
 
   const actions = document.createElement("div");
   actions.className = "sync-card-actions";
 
   const syncButton = createButton("btn btn-primary btn-sm btn-sync", i18n("btnStartSync"));
-  syncButton.disabled = !!state.running;
 
   const editButton = createButton("btn btn-secondary btn-sm btn-edit", i18n("btnEdit"));
-  editButton.disabled = !!state.running;
 
   const logButton = createButton("btn btn-log btn-sm btn-log-view", i18n("btnLog"));
-  if (state.status === "partialFailure" || state.status === "failed" || state.lastResult?.errors?.length > 0) {
-    const errorBadge = document.createElement("span");
-    errorBadge.className = "log-error-badge";
-    errorBadge.textContent = "!";
-    logButton.append(" ", errorBadge);
-  }
 
   const deleteButton = createButton("btn btn-danger btn-sm btn-delete", i18n("btnDelete"));
-  deleteButton.disabled = !!state.running;
   actions.append(syncButton, editButton, logButton, deleteButton);
   card.appendChild(actions);
+
+  updateSyncCardStatus(card, state);
 
   // Event listeners
   syncButton.addEventListener("click", () => startSync(config.id));
@@ -475,6 +434,61 @@ function createSyncCard(config, state) {
   deleteButton.addEventListener("click", () => deleteSync(config.id, config.name));
 
   return card;
+}
+
+function updateSyncCardStatus(card, state) {
+  let statusClass = state.status || "idle";
+  let statusText = i18n("statusReady");
+  if (state.status === "running" || state.running) {
+    statusClass = "running";
+    statusText = i18n("statusSyncing");
+  } else if (state.status === "success") {
+    statusText = i18n("statusSuccess");
+  } else if (state.status === "partialFailure") {
+    statusText = i18n("statusPartialFailure");
+  } else if (state.status === "failed" || state.error) {
+    statusClass = "failed";
+    statusText = i18n("statusFailed");
+  }
+
+  card.querySelector(".status-dot").className = `status-dot ${statusClass}`;
+  card.querySelector(".status-text").textContent = statusText;
+  card.querySelector(".badge-auto").classList.toggle("hidden", !state.autoSyncActive);
+  updateProgress(card, state.progress);
+
+  const lastSync = card.querySelector(".sync-card-last-sync");
+  lastSync.classList.toggle("hidden", !state.lastSync);
+  lastSync.textContent = state.lastSync
+    ? `${i18n("lastSync")} ${new Date(state.lastSync).toLocaleString()}`
+    : "";
+
+  let resultText = "";
+  if (state.lastResult) {
+    resultText = `A→B: ${state.lastResult.copiedAtoB} | B→A: ${state.lastResult.copiedBtoA}`;
+    if (state.lastResult.errors?.length > 0) {
+      resultText += ` | ${i18n("errorCount", [state.lastResult.errors.length])}`;
+    }
+  }
+  const result = card.querySelector(".sync-card-result");
+  result.classList.toggle("hidden", !resultText);
+  result.textContent = resultText;
+
+  for (const button of card.querySelectorAll(".btn-sync, .btn-edit, .btn-delete")) {
+    button.disabled = !!state.running;
+  }
+
+  const logButton = card.querySelector(".btn-log-view");
+  const showErrorBadge = state.status === "partialFailure" || state.status === "failed" ||
+    state.lastResult?.errors?.length > 0;
+  let errorBadge = logButton.querySelector(".log-error-badge");
+  if (showErrorBadge && !errorBadge) {
+    errorBadge = document.createElement("span");
+    errorBadge.className = "log-error-badge";
+    errorBadge.textContent = "!";
+    logButton.append(" ", errorBadge);
+  } else if (!showErrorBadge && errorBadge) {
+    errorBadge.remove();
+  }
 }
 
 function createButton(className, label) {
@@ -602,15 +616,9 @@ async function deleteSync(syncId, name) {
 // --- Status polling ---
 
 function startStatusPolling() {
-  stopStatusPolling();
-  statusPollTimer = setInterval(async () => {
-    await renderSyncList();
-  }, 2000);
+  statusPoller.start();
 }
 
 function stopStatusPolling() {
-  if (statusPollTimer) {
-    clearInterval(statusPollTimer);
-    statusPollTimer = null;
-  }
+  statusPoller.stop();
 }
