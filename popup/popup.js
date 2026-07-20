@@ -172,13 +172,12 @@ async function clearCurrentLog() {
 async function loadAccounts() {
   try {
     accountsData = await messenger.runtime.sendMessage({ action: "getAccounts" });
-    console.log("FolderSync popup: received accounts:", JSON.stringify(accountsData));
     if (!Array.isArray(accountsData)) {
-      console.warn("FolderSync popup: accountsData is not an array:", typeof accountsData, accountsData);
+      console.warn("FolderSync popup: account response is not an array");
       accountsData = [];
     }
-  } catch (err) {
-    console.error("FolderSync: failed to load accounts:", err);
+  } catch {
+    console.error("FolderSync: failed to load accounts");
     accountsData = [];
   }
 }

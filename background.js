@@ -24,8 +24,8 @@ async function restoreSyncStates() {
     );
     for (const [syncId, state] of restored.states) syncStates.set(syncId, state);
     if (restored.cleaned) await persistSyncStates();
-  } catch (err) {
-    console.error("FolderSync: failed to restore sync states:", err);
+  } catch {
+    console.error("FolderSync: failed to restore sync states");
   }
 }
 
@@ -243,7 +243,6 @@ async function syncFolders(syncId, folderA, folderB, direction = "both") {
 
 async function getAccountsWithFolders() {
   const accounts = await messenger.accounts.list(true);
-  console.log("FolderSync: raw accounts:", JSON.stringify(accounts.map(a => ({ id: a.id, name: a.name, type: a.type, hasRootFolder: !!a.rootFolder }))));
   return await Promise.all(accounts
     .filter((account) => account.type !== "none" && account.type !== "nntp")
     .map(async (account) => ({
@@ -259,8 +258,8 @@ async function addFolderCapabilities(folders) {
     try {
       const capabilities = await messenger.folders.getFolderCapabilities(folder.id);
       return { ...folder, canAddMessages: capabilities.canAddMessages === true };
-    } catch (err) {
-      console.warn(`FolderSync: failed to read capabilities for ${folder.id}:`, err);
+    } catch {
+      console.warn("FolderSync: failed to read capabilities for a folder");
       return { ...folder, canAddMessages: false };
     }
   }));
@@ -430,8 +429,8 @@ function configAlarmDependencies() {
 const configAlarmsReady = (async () => {
   try {
     await ConfigAlarmStore.reconcile(await loadConfigs(), configAlarmDependencies());
-  } catch (err) {
-    console.error("FolderSync: failed to reconcile automatic sync alarms:", err);
+  } catch {
+    console.error("FolderSync: failed to reconcile automatic sync alarms");
   }
 })();
 
@@ -526,8 +525,8 @@ async function handleRuntimeMessage(message) {
     case "getAccounts":
       try {
         return await getAccountsWithFolders();
-      } catch (err) {
-        console.error("FolderSync: failed to get accounts:", err);
+      } catch {
+        console.error("FolderSync: failed to get accounts");
         return [];
       }
 
@@ -643,11 +642,9 @@ messenger.runtime.onMessage.addListener((message, sender, sendResponse) => {
   handleRuntimeMessage(message)
     .then(sendResponse)
     .catch((err) => {
-      console.error("FolderSync: message handling failed:", err);
+      console.error("FolderSync: message handling failed");
       sendResponse({ error: err.message });
     });
 
   return true;
 });
-
-console.log("FolderSync background script loaded");
