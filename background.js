@@ -96,7 +96,6 @@ async function collectMessagesByIdentity(folder) {
 
 async function syncFolders(syncId, folderA, folderB, direction = "both") {
   const state = getSyncState(syncId);
-  state.running = true;
   state.error = null;
   setSyncProgress(state, {
     phase: "prepare",
@@ -192,7 +191,6 @@ async function syncFolders(syncId, folderA, folderB, direction = "both") {
     await appendLog(syncId, "error", `Fatal: ${err.message}`);
   }
 
-  state.running = false;
   state.lastSync = new Date().toISOString();
   state.lastResult = result;
   setSyncProgress(state, null);
@@ -340,23 +338,35 @@ async function isAutoSyncActive(syncId) {
   return !!alarm;
 }
 
+async function startSyncExclusive(syncId) {
+  const state = getSyncState(syncId);
+  return SyncLock.runExclusive(state, async () => {
+    try {
+      const configs = await loadConfigs();
+      const config = configs.find((candidate) => candidate.id === syncId);
+      if (!config || !config.folderA || !config.folderB) {
+        return { error: messenger.i18n.getMessage("errorNoFolders") };
+      }
+
+      const folders = await resolveAndPersistConfig(config, configs);
+      return await syncFolders(syncId, folders.folderA, folders.folderB, config.direction || "both");
+    } catch (err) {
+      state.error = err.message;
+      await appendLog(syncId, "error", err.message);
+      return { error: err.message };
+    } finally {
+      setSyncProgress(state, null);
+    }
+  });
+}
+
 messenger.alarms.onAlarm.addListener(async (alarm) => {
   if (!alarm.name.startsWith(ALARM_PREFIX)) return;
 
   const syncId = alarm.name.slice(ALARM_PREFIX.length);
   const state = getSyncState(syncId);
-  if (state.running) return;
-
-  const configs = await loadConfigs();
-  const config = configs.find((c) => c.id === syncId);
-  if (!config || !config.folderA || !config.folderB) return;
-
-  try {
-    const folders = await resolveAndPersistConfig(config, configs);
-    await syncFolders(syncId, folders.folderA, folders.folderB, config.direction || "both");
-  } catch (err) {
-    state.error = err.message;
-  }
+  const attempt = await startSyncExclusive(syncId);
+  if (attempt.started && attempt.value?.error) state.error = attempt.value.error;
 });
 
 async function updateFolderReferences(originalFolder, updatedFolder) {
@@ -439,25 +449,11 @@ async function handleRuntimeMessage(message) {
 
     case "startSync": {
       const syncId = message.syncId;
-      const state = getSyncState(syncId);
-      if (state.running) {
+      const attempt = await startSyncExclusive(syncId);
+      if (!attempt.started) {
         return { error: messenger.i18n.getMessage("errorSyncRunning") };
       }
-      const configs = await loadConfigs();
-      const config = configs.find((c) => c.id === syncId);
-      if (!config || !config.folderA || !config.folderB) {
-        return { error: messenger.i18n.getMessage("errorNoFolders") };
-      }
-      let folders;
-      try {
-        folders = await resolveAndPersistConfig(config, configs);
-      } catch (err) {
-        state.error = err.message;
-        await appendLog(syncId, "error", err.message);
-        return { error: err.message };
-      }
-      const result = await syncFolders(syncId, folders.folderA, folders.folderB, config.direction || "both");
-      return result;
+      return attempt.value;
     }
 
     case "startAutoSync": {

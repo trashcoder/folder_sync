@@ -16,6 +16,7 @@ zip -r "$OUTPUT" \
   manifest.json \
   folder-resolver.js \
   message-matcher.js \
+  sync-lock.js \
   background.js \
   build_info.js \
   LICENSE \
