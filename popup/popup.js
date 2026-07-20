@@ -260,6 +260,14 @@ async function saveSync() {
     return;
   }
 
+  const intervalText = els.autoSyncInterval.value.trim();
+  const autoSyncInterval = Number(intervalText);
+  if (intervalText === "" || !IntervalValidator.isValid(autoSyncInterval)) {
+    alert(i18n("errorAutoSyncInterval"));
+    els.autoSyncInterval.focus();
+    return;
+  }
+
   const config = {
     name: els.syncName.value.trim() || `${folderAOption.dataset.folderName} ↔ ${folderBOption.dataset.folderName}`,
     accountA: els.accountA.value,
@@ -278,7 +286,7 @@ async function saveSync() {
     },
     direction: els.syncDirection.value,
     autoSyncEnabled: els.autoSyncEnabled.checked,
-    autoSyncInterval: parseInt(els.autoSyncInterval.value, 10) || 5,
+    autoSyncInterval,
   };
 
   try {

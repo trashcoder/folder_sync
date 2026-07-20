@@ -210,5 +210,8 @@
   },
   "errorSyncInterrupted": {
     "message": "The previous sync was interrupted when the background process stopped"
+  },
+  "errorAutoSyncInterval": {
+    "message": "Enter a whole number from 1 to 1440 minutes for automatic synchronization"
   }
 }

@@ -351,6 +351,7 @@ function validateResolvedFolders(folderA, folderB, direction) {
 }
 
 async function validateConfig(config) {
+  IntervalValidator.assertValid(config.autoSyncInterval);
   await resolveConfigFolders(config);
 }
 
@@ -397,6 +398,7 @@ function alarmName(syncId) {
 }
 
 async function startAutoSync(syncId, intervalMinutes) {
+  IntervalValidator.assertValid(intervalMinutes);
   await messenger.alarms.create(alarmName(syncId), {
     periodInMinutes: intervalMinutes,
   });
@@ -583,7 +585,7 @@ async function handleRuntimeMessage(message) {
     }
 
     case "startAutoSync": {
-      await startAutoSync(message.syncId, message.intervalMinutes || 5);
+      await startAutoSync(message.syncId, message.intervalMinutes);
       return { ok: true };
     }
 

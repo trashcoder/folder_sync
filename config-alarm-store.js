@@ -1,11 +1,15 @@
 (function (root, factory) {
-  const api = factory();
+  const validator = typeof module !== "undefined" && module.exports
+    ? require("./interval-validator.js")
+    : root.IntervalValidator;
+  const api = factory(validator);
   if (typeof module !== "undefined" && module.exports) module.exports = api;
   else root.ConfigAlarmStore = api;
-})(typeof globalThis !== "undefined" ? globalThis : this, function () {
+})(typeof globalThis !== "undefined" ? globalThis : this, function (validator) {
   async function setAlarm(config, deps) {
+    validator.assertValid(config.autoSyncInterval);
     if (config.autoSyncEnabled) {
-      await deps.createAlarm(config.id, config.autoSyncInterval || 5);
+      await deps.createAlarm(config.id, config.autoSyncInterval);
     } else {
       await deps.clearAlarm(config.id);
     }
@@ -20,6 +24,7 @@
   }
 
   async function saveWithAlarm(config, previousConfigs, nextConfigs, deps) {
+    validator.assertValid(config.autoSyncInterval);
     const previousAlarm = await deps.getAlarm(config.id);
     try {
       await setAlarm(config, deps);
@@ -52,8 +57,9 @@
 
     const configuredIds = new Set(configs.map((config) => config.id));
     for (const config of configs) {
+      validator.assertValid(config.autoSyncInterval);
       const alarm = existing.get(config.id);
-      const interval = config.autoSyncInterval || 5;
+      const interval = config.autoSyncInterval;
       if (config.autoSyncEnabled) {
         if (!alarm || alarm.periodInMinutes !== interval) {
           await deps.createAlarm(config.id, interval);

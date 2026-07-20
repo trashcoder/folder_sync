@@ -26,6 +26,18 @@ test("creates a config and its enabled alarm in one save", async () => {
   assert.equal(data.alarms.get("new").periodInMinutes, 10);
 });
 
+test("rejects invalid intervals before an alarm or config is created", async () => {
+  for (const interval of [0, 1441, 1.5, NaN, "5", "not-a-number", ""]) {
+    const { data, deps } = fixture();
+    let alarmCalls = 0;
+    deps.createAlarm = async () => { alarmCalls += 1; };
+    const config = { id: "invalid", autoSyncEnabled: true, autoSyncInterval: interval };
+    await assert.rejects(Store.saveWithAlarm(config, [], [config], deps), RangeError);
+    assert.equal(alarmCalls, 0);
+    assert.deepEqual(data.configs, []);
+  }
+});
+
 test("updates an enabled config and its alarm interval", async () => {
   const old = { id: "one", autoSyncEnabled: true, autoSyncInterval: 5 };
   const next = { ...old, autoSyncInterval: 15 };

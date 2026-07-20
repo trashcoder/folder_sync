@@ -210,5 +210,8 @@
   },
   "errorSyncInterrupted": {
     "message": "Die vorherige Synchronisierung wurde beim Beenden des Hintergrundprozesses unterbrochen"
+  },
+  "errorAutoSyncInterval": {
+    "message": "Gib für die automatische Synchronisierung eine ganze Zahl von 1 bis 1440 Minuten ein"
   }
 }
