@@ -286,29 +286,9 @@ async function saveSync() {
       config.id = editingSyncId;
       const response = await messenger.runtime.sendMessage({ action: "updateConfig", config });
       if (response?.error) throw new Error(response.error);
-
-      // Update auto-sync alarm
-      if (config.autoSyncEnabled) {
-        await messenger.runtime.sendMessage({
-          action: "startAutoSync",
-          syncId: editingSyncId,
-          intervalMinutes: config.autoSyncInterval,
-        });
-      } else {
-        await messenger.runtime.sendMessage({ action: "stopAutoSync", syncId: editingSyncId });
-      }
     } else {
       const newConfig = await messenger.runtime.sendMessage({ action: "addConfig", config });
       if (newConfig?.error) throw new Error(newConfig.error);
-
-      // Start auto-sync if enabled
-      if (config.autoSyncEnabled && newConfig.id) {
-        await messenger.runtime.sendMessage({
-          action: "startAutoSync",
-          syncId: newConfig.id,
-          intervalMinutes: config.autoSyncInterval,
-        });
-      }
     }
   } catch (err) {
     alert(err.message);

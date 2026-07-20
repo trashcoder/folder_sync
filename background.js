@@ -411,6 +411,25 @@ async function isAutoSyncActive(syncId) {
   return !!alarm;
 }
 
+function configAlarmDependencies() {
+  return {
+    saveConfigs,
+    getAlarm: (syncId) => messenger.alarms.get(alarmName(syncId)),
+    getAllAlarms: () => messenger.alarms.getAll(),
+    createAlarm: startAutoSync,
+    clearAlarm: stopAutoSync,
+    syncIdFromAlarm: (name) => name.startsWith(ALARM_PREFIX) ? name.slice(ALARM_PREFIX.length) : null,
+  };
+}
+
+const configAlarmsReady = (async () => {
+  try {
+    await ConfigAlarmStore.reconcile(await loadConfigs(), configAlarmDependencies());
+  } catch (err) {
+    console.error("FolderSync: failed to reconcile automatic sync alarms:", err);
+  }
+})();
+
 async function startSyncExclusive(syncId) {
   await syncStatesReady;
   const state = getSyncState(syncId);
@@ -497,6 +516,7 @@ messenger.folders.onDeleted.addListener(async (deletedFolder) => {
 
 async function handleRuntimeMessage(message) {
   await syncStatesReady;
+  await configAlarmsReady;
   switch (message.action) {
     case "getAccounts":
       try {
@@ -519,9 +539,10 @@ async function handleRuntimeMessage(message) {
       const configs = await loadConfigs();
       const newConfig = { ...message.config, id: generateId() };
       await validateConfig(newConfig);
-      configs.push(newConfig);
-      await saveConfigs(configs);
-      return newConfig;
+      const nextConfigs = [...configs, newConfig];
+      return await ConfigAlarmStore.saveWithAlarm(
+        newConfig, configs, nextConfigs, configAlarmDependencies()
+      );
     }
 
     case "updateConfig": {
@@ -530,8 +551,11 @@ async function handleRuntimeMessage(message) {
         const idx = configs.findIndex((c) => c.id === message.config.id);
         if (idx === -1) return { error: "Config not found" };
         await validateConfig(message.config);
-        configs[idx] = message.config;
-        await saveConfigs(configs);
+        const nextConfigs = configs.slice();
+        nextConfigs[idx] = message.config;
+        await ConfigAlarmStore.saveWithAlarm(
+          message.config, configs, nextConfigs, configAlarmDependencies()
+        );
         return { ok: true };
       });
     }

@@ -18,6 +18,7 @@ zip -r "$OUTPUT" \
   message-matcher.js \
   sync-lock.js \
   sync-state-store.js \
+  config-alarm-store.js \
   background.js \
   build_info.js \
   LICENSE \

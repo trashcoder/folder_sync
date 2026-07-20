@@ -28,7 +28,7 @@
     "page": "options/options.html"
   },
   "background": {
-    "scripts": ["folder-resolver.js", "message-matcher.js", "sync-lock.js", "sync-state-store.js", "background.js"]
+    "scripts": ["folder-resolver.js", "message-matcher.js", "sync-lock.js", "sync-state-store.js", "config-alarm-store.js", "background.js"]
   },
   "permissions": [
     "accountsRead",
