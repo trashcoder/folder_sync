@@ -2,7 +2,7 @@
   "manifest_version": 3,
   "name": "__MSG_extensionName__",
   "description": "__MSG_extensionDescription__",
-  "version": "0.2.4",
+  "version": "0.2.5",
   "author": "Dennis Schey",
   "default_locale": "en-US",
   "browser_specific_settings": {
