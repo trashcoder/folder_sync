@@ -17,6 +17,7 @@ zip -r "$OUTPUT" \
   folder-resolver.js \
   message-matcher.js \
   sync-lock.js \
+  sync-state-store.js \
   background.js \
   build_info.js \
   LICENSE \

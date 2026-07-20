@@ -184,5 +184,8 @@
   },
   "logEmpty": {
     "message": "Keine Einträge vorhanden."
+  },
+  "errorSyncInterrupted": {
+    "message": "Die vorherige Synchronisierung wurde beim Beenden des Hintergrundprozesses unterbrochen"
   }
 }

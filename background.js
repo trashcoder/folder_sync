@@ -1,17 +1,32 @@
 const ALARM_PREFIX = "foldersync-auto-sync-";
 
-// Per-sync state: Map<syncId, { running, lastSync, lastResult, error, progress }>
+// Durable fields are persisted; progress remains intentionally UI-only.
 const syncStates = new Map();
+const syncStatesReady = restoreSyncStates();
+
+async function persistSyncStates() {
+  await messenger.storage.local.set({
+    [SyncStateStore.STORAGE_KEY]: SyncStateStore.serialize(syncStates),
+  });
+}
+
+async function restoreSyncStates() {
+  try {
+    const data = await messenger.storage.local.get(SyncStateStore.STORAGE_KEY);
+    const restored = SyncStateStore.restore(
+      data[SyncStateStore.STORAGE_KEY],
+      messenger.i18n.getMessage("errorSyncInterrupted")
+    );
+    for (const [syncId, state] of restored.states) syncStates.set(syncId, state);
+    if (restored.cleaned) await persistSyncStates();
+  } catch (err) {
+    console.error("FolderSync: failed to restore sync states:", err);
+  }
+}
 
 function getSyncState(syncId) {
   if (!syncStates.has(syncId)) {
-    syncStates.set(syncId, {
-      running: false,
-      lastSync: null,
-      lastResult: null,
-      error: null,
-      progress: null,
-    });
+    syncStates.set(syncId, SyncStateStore.emptyState());
   }
   return syncStates.get(syncId);
 }
@@ -339,25 +354,39 @@ async function isAutoSyncActive(syncId) {
 }
 
 async function startSyncExclusive(syncId) {
+  await syncStatesReady;
   const state = getSyncState(syncId);
-  return SyncLock.runExclusive(state, async () => {
-    try {
-      const configs = await loadConfigs();
-      const config = configs.find((candidate) => candidate.id === syncId);
-      if (!config || !config.folderA || !config.folderB) {
-        return { error: messenger.i18n.getMessage("errorNoFolders") };
-      }
+  if (state.running) return { started: false };
+  state.running = true;
+  state.startedAt = new Date().toISOString();
+  state.error = null;
+  try {
+    await persistSyncStates();
+    const value = await (async () => {
+      try {
+        const configs = await loadConfigs();
+        const config = configs.find((candidate) => candidate.id === syncId);
+        if (!config || !config.folderA || !config.folderB) {
+          return { error: messenger.i18n.getMessage("errorNoFolders") };
+        }
 
-      const folders = await resolveAndPersistConfig(config, configs);
-      return await syncFolders(syncId, folders.folderA, folders.folderB, config.direction || "both");
-    } catch (err) {
-      state.error = err.message;
-      await appendLog(syncId, "error", err.message);
-      return { error: err.message };
-    } finally {
-      setSyncProgress(state, null);
-    }
-  });
+        const folders = await resolveAndPersistConfig(config, configs);
+        return await syncFolders(syncId, folders.folderA, folders.folderB, config.direction || "both");
+      } catch (err) {
+        state.error = err.message;
+        await appendLog(syncId, "error", err.message);
+        return { error: err.message };
+      } finally {
+        setSyncProgress(state, null);
+      }
+    })();
+    return { started: true, value };
+  } finally {
+    state.running = false;
+    state.startedAt = null;
+    setSyncProgress(state, null);
+    await persistSyncStates();
+  }
 }
 
 messenger.alarms.onAlarm.addListener(async (alarm) => {
@@ -402,6 +431,7 @@ messenger.folders.onDeleted.addListener(async (deletedFolder) => {
 // --- Message handling (popup <-> background) ---
 
 async function handleRuntimeMessage(message) {
+  await syncStatesReady;
   switch (message.action) {
     case "getAccounts":
       try {
@@ -444,6 +474,7 @@ async function handleRuntimeMessage(message) {
       await stopAutoSync(message.syncId);
       await clearLog(message.syncId);
       syncStates.delete(message.syncId);
+      await persistSyncStates();
       return { ok: true };
     }
 

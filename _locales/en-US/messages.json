@@ -184,5 +184,8 @@
   },
   "logEmpty": {
     "message": "No log entries."
+  },
+  "errorSyncInterrupted": {
+    "message": "The previous sync was interrupted when the background process stopped"
   }
 }
