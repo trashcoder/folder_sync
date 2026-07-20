@@ -16,6 +16,10 @@ Outputs `build/foldersync-<version>.xpi`. The version is read from `manifest.jso
 
 To install: in Thunderbird, go to Add-ons Manager → Extensions → gear icon → "Install Add-on From File…" and select the `.xpi`.
 
+## Releases
+
+Always write GitHub release titles and release notes in English.
+
 ## Architecture
 
 The extension follows the standard background/popup split:
