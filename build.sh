@@ -14,6 +14,7 @@ rm -f "$OUTPUT"
 
 zip -r "$OUTPUT" \
   manifest.json \
+  folder-resolver.js \
   background.js \
   build_info.js \
   LICENSE \

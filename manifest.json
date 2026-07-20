@@ -28,7 +28,7 @@
     "page": "options/options.html"
   },
   "background": {
-    "scripts": ["background.js"]
+    "scripts": ["folder-resolver.js", "background.js"]
   },
   "permissions": [
     "accountsRead",

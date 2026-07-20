@@ -213,6 +213,7 @@ function populateFolders(side) {
     opt.textContent = folder.path;
     opt.dataset.folderId = folder.id;
     opt.dataset.folderName = folder.name;
+    opt.dataset.folderType = folder.type || "";
     folderSelect.appendChild(opt);
   }
 
@@ -245,11 +246,13 @@ async function saveSync() {
       id: folderAOption.value,
       name: folderAOption.dataset.folderName,
       path: folderAOption.textContent,
+      type: folderAOption.dataset.folderType || null,
     },
     folderB: {
       id: folderBOption.value,
       name: folderBOption.dataset.folderName,
       path: folderBOption.textContent,
+      type: folderBOption.dataset.folderType || null,
     },
     direction: els.syncDirection.value,
     autoSyncEnabled: els.autoSyncEnabled.checked,

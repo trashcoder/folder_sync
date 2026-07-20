@@ -134,6 +134,18 @@
   "errorNoFolders": {
     "message": "No folders configured"
   },
+  "errorAccountNotFound": {
+    "message": "Account for folder $SIDE$ was not found",
+    "placeholders": { "side": { "content": "$1" } }
+  },
+  "errorFolderNotFound": {
+    "message": "Folder $SIDE$ was not found",
+    "placeholders": { "side": { "content": "$1" } }
+  },
+  "errorFolderAmbiguous": {
+    "message": "Folder $SIDE$ cannot be resolved unambiguously",
+    "placeholders": { "side": { "content": "$1" } }
+  },
   "aboutDescription": {
     "message": "FolderSync synchronizes email folders between different accounts. Messages are compared by their unique Message-ID and missing messages are copied to the other folder."
   },
