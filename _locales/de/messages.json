@@ -138,6 +138,9 @@
       }
     }
   },
+  "confirmDeleteTitle": {
+    "message": "Synchronisation löschen?"
+  },
   "alertSelectBothFolders": {
     "message": "Bitte beide Ordner auswählen"
   },

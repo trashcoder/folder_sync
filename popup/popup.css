@@ -432,3 +432,44 @@ select:disabled {
   font-size: 12px;
   padding: 24px 12px;
 }
+
+/* --- Confirmation dialog --- */
+
+.confirm-dialog {
+  width: 340px;
+  max-width: calc(100% - 24px);
+  margin: auto;
+  padding: 16px;
+  border: 1px solid #ccd;
+  border-radius: 8px;
+  color: #1a1a2e;
+  background: #fff;
+  box-shadow: 0 8px 24px rgb(0 0 0 / 25%);
+}
+
+.confirm-dialog::backdrop {
+  background: rgb(26 26 46 / 45%);
+}
+
+.confirm-dialog h2 {
+  margin-bottom: 8px;
+}
+
+.confirm-dialog-message {
+  line-height: 1.4;
+  overflow-wrap: anywhere;
+}
+
+.confirm-dialog-error {
+  margin-top: 8px;
+  color: #c62828;
+  font-size: 11px;
+  line-height: 1.4;
+}
+
+.confirm-dialog-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 14px;
+}

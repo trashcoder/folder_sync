@@ -85,6 +85,16 @@
     <div id="logEmpty" class="log-empty hidden" data-i18n="logEmpty"></div>
   </div>
 
+  <dialog id="deleteDialog" class="confirm-dialog" aria-labelledby="deleteDialogTitle">
+    <h2 id="deleteDialogTitle" data-i18n="confirmDeleteTitle"></h2>
+    <p id="deleteDialogMessage" class="confirm-dialog-message"></p>
+    <p id="deleteDialogError" class="confirm-dialog-error hidden" role="alert"></p>
+    <div class="confirm-dialog-actions">
+      <button id="btnCancelDelete" class="btn btn-secondary" data-i18n="btnCancel"></button>
+      <button id="btnConfirmDelete" class="btn btn-danger" data-i18n="btnDelete"></button>
+    </div>
+  </dialog>
+
   <script src="../build_info.js"></script>
   <script src="../interval-validator.js"></script>
   <script src="status-poller.js"></script>

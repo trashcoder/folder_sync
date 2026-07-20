@@ -26,10 +26,17 @@ const els = {
   logViewTitle: document.getElementById("logViewTitle"),
   logEntries: document.getElementById("logEntries"),
   logEmpty: document.getElementById("logEmpty"),
+  // Delete confirmation
+  deleteDialog: document.getElementById("deleteDialog"),
+  deleteDialogMessage: document.getElementById("deleteDialogMessage"),
+  deleteDialogError: document.getElementById("deleteDialogError"),
+  btnCancelDelete: document.getElementById("btnCancelDelete"),
+  btnConfirmDelete: document.getElementById("btnConfirmDelete"),
 };
 
 let accountsData = [];
 let editingSyncId = null; // null = new, string = editing existing
+let pendingDelete = null;
 const statusPoller = StatusPoller.create(refreshSyncStatuses, 2000);
 
 // --- i18n helper ---
@@ -63,6 +70,16 @@ document.addEventListener("DOMContentLoaded", async () => {
   els.btnCancel.addEventListener("click", showListView);
   els.btnLogBack.addEventListener("click", showListView);
   els.btnClearLog.addEventListener("click", clearCurrentLog);
+  els.btnCancelDelete.addEventListener("click", () => els.deleteDialog.close());
+  els.btnConfirmDelete.addEventListener("click", confirmDeleteSync);
+  els.deleteDialog.addEventListener("cancel", (event) => {
+    if (pendingDelete?.inProgress) event.preventDefault();
+  });
+  els.deleteDialog.addEventListener("close", () => {
+    const previousFocus = pendingDelete?.previousFocus;
+    pendingDelete = null;
+    if (previousFocus?.isConnected) previousFocus.focus();
+  });
 });
 
 // --- Views ---
@@ -431,7 +448,7 @@ function createSyncCard(config, state) {
   syncButton.addEventListener("click", () => startSync(config.id));
   editButton.addEventListener("click", () => showEditView(config.id));
   logButton.addEventListener("click", () => showLogView(config.id, config.name || i18n("unnamed")));
-  deleteButton.addEventListener("click", () => deleteSync(config.id, config.name));
+  deleteButton.addEventListener("click", () => showDeleteDialog(config.id, config.name));
 
   return card;
 }
@@ -601,16 +618,41 @@ async function startSync(syncId) {
   await renderSyncList();
 }
 
-async function deleteSync(syncId, name) {
-  if (!confirm(i18n("confirmDelete", [name]))) return;
+function showDeleteDialog(syncId, name) {
+  pendingDelete = {
+    syncId,
+    inProgress: false,
+    previousFocus: document.activeElement,
+  };
+  els.deleteDialogMessage.textContent = i18n("confirmDelete", [name || i18n("unnamed")]);
+  els.deleteDialogError.textContent = "";
+  els.deleteDialogError.classList.add("hidden");
+  els.btnCancelDelete.disabled = false;
+  els.btnConfirmDelete.disabled = false;
+  els.deleteDialog.showModal();
+  els.btnConfirmDelete.focus();
+}
 
+async function confirmDeleteSync() {
+  if (!pendingDelete || pendingDelete.inProgress) return;
+  const syncId = pendingDelete.syncId;
+  pendingDelete.inProgress = true;
+  els.btnCancelDelete.disabled = true;
+  els.btnConfirmDelete.disabled = true;
   try {
     const response = await messenger.runtime.sendMessage({ action: "deleteConfig", syncId });
     if (response?.error) throw new Error(response.error);
+    els.deleteDialog.close();
+    await renderSyncList();
   } catch (err) {
-    alert(err.message);
+    if (!pendingDelete) return;
+    pendingDelete.inProgress = false;
+    els.btnCancelDelete.disabled = false;
+    els.btnConfirmDelete.disabled = false;
+    els.deleteDialogError.textContent = err.message;
+    els.deleteDialogError.classList.remove("hidden");
+    els.btnConfirmDelete.focus();
   }
-  await renderSyncList();
 }
 
 // --- Status polling ---

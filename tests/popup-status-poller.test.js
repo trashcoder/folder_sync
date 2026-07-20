@@ -98,3 +98,14 @@ test("popup stores specialUse metadata instead of the removed MailFolder type", 
   assert.match(popupSource, /specialUse:/);
   assert.doesNotMatch(popupSource, /dataset\.folderType|folder\.type/);
 });
+
+test("delete confirmation stays inside the popup instead of opening a native prompt", () => {
+  const popupSource = fs.readFileSync(path.join(__dirname, "../popup/popup.js"), "utf8");
+  const html = fs.readFileSync(path.join(__dirname, "../popup/popup.html"), "utf8");
+
+  assert.doesNotMatch(popupSource, /\bconfirm\s*\(/);
+  assert.match(popupSource, /deleteDialog\.showModal\(\)/);
+  assert.match(popupSource, /action: "deleteConfig"/);
+  assert.match(html, /<dialog id="deleteDialog"/);
+  assert.match(html, /id="deleteDialogError"[^>]*role="alert"/);
+});
