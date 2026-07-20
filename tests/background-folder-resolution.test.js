@@ -170,6 +170,23 @@ test("starts an existing configuration with resolved writable folders", async ()
   assert.equal("canAddMessages" in runtime.storage.syncConfigs[0].folderB, false);
 });
 
+test("migrates and deletes a configuration without a legacy sync ID", async () => {
+  const runtime = loadRuntime({
+    configs: [config("both")],
+    capabilities: { "current-a": true, "current-b": true },
+  });
+
+  const configs = await runtime.send({ action: "getConfigs" });
+  assert.equal(typeof configs[0].id, "string");
+  assert.ok(configs[0].id.length > 0);
+  assert.equal(runtime.storage.syncConfigs[0].id, configs[0].id);
+
+  const response = await runtime.send({ action: "deleteConfig", syncId: configs[0].id });
+
+  assert.equal(response.ok, true);
+  assert.deepEqual(runtime.storage.syncConfigs, []);
+});
+
 test("migrates legacy folder descriptors only after both folders resolve", async () => {
   const existing = {
     ...config("both"),

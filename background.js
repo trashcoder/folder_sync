@@ -328,23 +328,60 @@ async function saveConfigs(configs) {
   await messenger.storage.local.set({ syncConfigs: configs });
 }
 
-async function loadConfigs() {
+let configMigrationPromise = null;
+
+function normalizedConfigId(id, usedIds) {
+  const candidate = typeof id === "string" ? id.trim() :
+    (typeof id === "number" && Number.isFinite(id) ? String(id) : "");
+  if (candidate && !usedIds.has(candidate)) return candidate;
+
+  let generated;
+  do {
+    generated = generateId();
+  } while (usedIds.has(generated));
+  return generated;
+}
+
+async function migrateStoredConfigs() {
   const data = await messenger.storage.local.get(["syncConfigs", "syncConfig"]);
+  let configs;
 
   // Migration: convert old single config to array
-  if (!data.syncConfigs && data.syncConfig) {
+  if (!Array.isArray(data.syncConfigs) && data.syncConfig) {
     const oldConfig = data.syncConfig;
-    const migrated = [{
+    configs = [{
       ...oldConfig,
       id: generateId(),
       name: `${oldConfig.folderA?.name || "A"} ↔ ${oldConfig.folderB?.name || "B"}`,
     }];
-    await messenger.storage.local.set({ syncConfigs: migrated });
-    await messenger.storage.local.remove("syncConfig");
-    return migrated;
+  } else {
+    configs = Array.isArray(data.syncConfigs) ? data.syncConfigs : [];
   }
 
-  return data.syncConfigs || [];
+  const usedIds = new Set();
+  let changed = !Array.isArray(data.syncConfigs);
+  configs = configs.map((config) => {
+    const id = normalizedConfigId(config?.id, usedIds);
+    usedIds.add(id);
+    if (config?.id === id) return config;
+    changed = true;
+    return { ...config, id };
+  });
+
+  if (changed) await saveConfigs(configs);
+  if (data.syncConfig) await messenger.storage.local.remove("syncConfig");
+}
+
+async function loadConfigs() {
+  if (!configMigrationPromise) {
+    configMigrationPromise = migrateStoredConfigs().catch((err) => {
+      configMigrationPromise = null;
+      throw err;
+    });
+  }
+  await configMigrationPromise;
+  const data = await messenger.storage.local.get("syncConfigs");
+  return Array.isArray(data.syncConfigs) ? data.syncConfigs : [];
 }
 
 function generateId() {
@@ -639,6 +676,9 @@ async function handleRuntimeMessage(message) {
     case "deleteConfig": {
       return await mutateConfigExclusive(message.syncId, async () => {
         const configs = await loadConfigs();
+        if (!configs.some((config) => config.id === message.syncId)) {
+          return { error: "Config not found" };
+        }
         const filtered = configs.filter((c) => c.id !== message.syncId);
         await saveConfigs(filtered);
         await stopAutoSync(message.syncId);
