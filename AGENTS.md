@@ -4,7 +4,7 @@ This file provides guidance to Codex (Codex.ai/code) when working with code in t
 
 ## What this is
 
-FolderSync is a Thunderbird add-on (Manifest V3) that synchronizes email messages between folders across different accounts. It uses the MailExtension API (`messenger.*`), not the standard WebExtension API (`browser.*` / `chrome.*`).
+FolderSync is a Thunderbird add-on (Manifest V3) that synchronizes email messages between folders across different accounts. A sync job contains an account pair and one or more explicit folder mappings. It uses the MailExtension API (`messenger.*`), not the standard WebExtension API (`browser.*` / `chrome.*`).
 
 ## Build
 
@@ -24,7 +24,7 @@ Always write GitHub release titles and release notes in English.
 
 The extension follows the standard background/popup split:
 
-- **`background.js`** — the sync engine. Runs persistently in the background. Owns all state (`syncStates` Map), config persistence (`messenger.storage.local`), and alarm scheduling. Exposes functionality exclusively via `messenger.runtime.onMessage`.
+- **`background.js`** — the sync engine. Runs persistently in the background. Owns all state (`syncStates` Map), config persistence (`messenger.storage.local`), and alarm scheduling. Runs each mapping separately and keeps job totals plus mapping results. Exposes functionality exclusively via `messenger.runtime.onMessage`.
 - **`popup/popup.js`** — the toolbar popup UI. Stateless: fetches everything from the background on load. Two views: list view (shows all sync configs with status) and edit view (create/update a config). Polls background every 2 seconds for status updates while the list view is open.
 - **`options/options.html`** — minimal options page that only shows the extension version.
 - **`_locales/`** — i18n strings in `en-US` and `de`. All UI strings go through `messenger.i18n.getMessage`. HTML elements use `data-i18n` attributes; `applyI18n()` applies them on load.
@@ -47,7 +47,7 @@ All communication uses `messenger.runtime.sendMessage`. Supported actions:
 
 ### Sync logic
 
-Deduplication is by `headerMessageId`. `collectMessageIds` pages through all messages in a folder (using `messenger.messages.continueList` for pagination) and builds a `Map<headerMessageId, thunderbirdMessageId>`. Missing messages are copied in batches of 50 via `messenger.messages.copy`.
+Deduplication uses Message-ID and a metadata fingerprint when Message-ID is missing. `collectMessagesByIdentity` pages through all messages in a folder (using `messenger.messages.continueList` for pagination). Missing messages are copied in batches of 50 via `messenger.messages.copy`.
 
 Directions: `"both"` (bidirectional), `"aToB"`, `"bToA"`.
 
@@ -59,15 +59,18 @@ Directions: `"both"` (bidirectional), `"aToB"`, `"bToA"`.
   name: string,
   accountA: string,     // account ID
   accountB: string,
-  folderA: { id, name },
-  folderB: { id, name },
+  mappings: [{
+    id: string,
+    folderA: { id, name, path, specialUse },
+    folderB: { id, name, path, specialUse }
+  }],
   direction: "both" | "aToB" | "bToA",
   autoSyncEnabled: boolean,
   autoSyncInterval: number  // minutes
 }
 ```
 
-A one-time migration runs on `loadConfigs` to convert the old single `syncConfig` key to the new `syncConfigs` array format.
+A one-time migration runs on `loadConfigs` to convert the old single `syncConfig` key and 0.2.x entries with `folderA` / `folderB` into jobs with one mapping each. Job IDs, direction, and auto-sync settings are preserved for 0.2.x array entries.
 
 ### Alarms
 

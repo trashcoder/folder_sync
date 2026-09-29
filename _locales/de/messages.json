@@ -23,6 +23,26 @@
   "folderB": {
     "message": "Ordner B"
   },
+  "sourceAccount": { "message": "Konto A" },
+  "targetAccount": { "message": "Konto B" },
+  "sourceFolder": { "message": "Ordner A" },
+  "targetFolder": { "message": "Ordner B" },
+  "folderMappings": { "message": "Ordnerzuordnungen" },
+  "btnAddMapping": { "message": "+ Ordnerzuordnung hinzufügen" },
+  "btnRemoveMapping": { "message": "Zuordnung entfernen" },
+  "unavailableFolder": {
+    "message": "Nicht verfügbar: $FOLDER$",
+    "placeholders": { "folder": { "content": "$1" } }
+  },
+  "logJobDone": {
+    "message": "Job beendet: A→B $A_TO_B$, B→A $B_TO_A$, $ERRORS$ Fehler",
+    "placeholders": { "a_to_b": { "content": "$1" }, "b_to_a": { "content": "$2" }, "errors": { "content": "$3" } }
+  },
+  "errorDuplicateMapping": { "message": "Diese Ordnerzuordnung ist im Job bereits vorhanden" },
+  "mappingProgress": {
+    "message": "Zuordnung $CURRENT$/$TOTAL$",
+    "placeholders": { "current": { "content": "$1" }, "total": { "content": "$2" } }
+  },
   "labelAccount": {
     "message": "Account"
   },

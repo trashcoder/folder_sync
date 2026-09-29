@@ -23,6 +23,26 @@
   "folderB": {
     "message": "Folder B"
   },
+  "sourceAccount": { "message": "Account A" },
+  "targetAccount": { "message": "Account B" },
+  "sourceFolder": { "message": "Folder A" },
+  "targetFolder": { "message": "Folder B" },
+  "folderMappings": { "message": "Folder mappings" },
+  "btnAddMapping": { "message": "+ Add folder mapping" },
+  "btnRemoveMapping": { "message": "Remove mapping" },
+  "unavailableFolder": {
+    "message": "Unavailable: $FOLDER$",
+    "placeholders": { "folder": { "content": "$1" } }
+  },
+  "logJobDone": {
+    "message": "Job done: A→B $A_TO_B$, B→A $B_TO_A$, $ERRORS$ error(s)",
+    "placeholders": { "a_to_b": { "content": "$1" }, "b_to_a": { "content": "$2" }, "errors": { "content": "$3" } }
+  },
+  "errorDuplicateMapping": { "message": "This folder mapping is already in the job" },
+  "mappingProgress": {
+    "message": "Mapping $CURRENT$/$TOTAL$",
+    "placeholders": { "current": { "content": "$1" }, "total": { "content": "$2" } }
+  },
   "labelAccount": {
     "message": "Account"
   },

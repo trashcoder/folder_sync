@@ -12,9 +12,9 @@ const els = {
   // Edit view
   syncName: document.getElementById("syncName"),
   accountA: document.getElementById("accountA"),
-  folderA: document.getElementById("folderA"),
   accountB: document.getElementById("accountB"),
-  folderB: document.getElementById("folderB"),
+  mappingRows: document.getElementById("mappingRows"),
+  btnAddMapping: document.getElementById("btnAddMapping"),
   syncDirection: document.getElementById("syncDirection"),
   autoSyncEnabled: document.getElementById("autoSyncEnabled"),
   autoSyncInterval: document.getElementById("autoSyncInterval"),
@@ -62,9 +62,10 @@ document.addEventListener("DOMContentLoaded", async () => {
   await loadAccounts();
   showListView();
 
-  els.accountA.addEventListener("change", () => populateFolders("A"));
-  els.accountB.addEventListener("change", () => populateFolders("B"));
+  els.accountA.addEventListener("change", refreshMappingRows);
+  els.accountB.addEventListener("change", refreshMappingRows);
   els.syncDirection.addEventListener("change", updateFolderAvailability);
+  els.btnAddMapping.addEventListener("click", () => addMappingRow());
   els.btnAdd.addEventListener("click", () => showEditView(null));
   els.btnSave.addEventListener("click", saveSync);
   els.btnCancel.addEventListener("click", showListView);
@@ -103,11 +104,8 @@ async function showEditView(syncId) {
   // Reset form
   els.syncName.value = "";
   els.accountA.value = "";
-  setPlaceholderOption(els.folderA, "selectFolder");
-  els.folderA.disabled = true;
   els.accountB.value = "";
-  setPlaceholderOption(els.folderB, "selectFolder");
-  els.folderB.disabled = true;
+  els.mappingRows.replaceChildren();
   els.syncDirection.value = "both";
   els.autoSyncEnabled.checked = false;
   els.autoSyncInterval.value = "5";
@@ -124,18 +122,16 @@ async function showEditView(syncId) {
       els.syncDirection.value = config.direction || "both";
       if (config.accountA) {
         els.accountA.value = config.accountA;
-        populateFolders("A");
-        if (config.folderA) els.folderA.value = config.folderA.id;
       }
       if (config.accountB) {
         els.accountB.value = config.accountB;
-        populateFolders("B");
-        if (config.folderB) els.folderB.value = config.folderB.id;
       }
+      for (const mapping of config.mappings || []) addMappingRow(mapping);
       els.autoSyncEnabled.checked = config.autoSyncEnabled || false;
       els.autoSyncInterval.value = config.autoSyncInterval || 5;
     }
   }
+  if (!els.mappingRows.children.length) addMappingRow();
 }
 
 // --- Log view ---
@@ -210,47 +206,89 @@ function populateAccountDropdown(select, accounts) {
   }
 }
 
-function populateFolders(side) {
-  const accountSelect = side === "A" ? els.accountA : els.accountB;
-  const folderSelect = side === "A" ? els.folderA : els.folderB;
-  const accountId = accountSelect.value;
+function addMappingRow(mapping = null) {
+  const row = document.createElement("div");
+  row.className = "mapping-row";
+  if (mapping?.id) row.dataset.mappingId = mapping.id;
 
-  setPlaceholderOption(folderSelect, "selectFolder");
-
-  if (!accountId) {
-    folderSelect.disabled = true;
-    return;
+  for (const side of ["A", "B"]) {
+    const field = document.createElement("div");
+    field.className = "field";
+    const label = document.createElement("label");
+    label.textContent = i18n(side === "A" ? "sourceFolder" : "targetFolder");
+    const select = document.createElement("select");
+    select.className = `mapping-folder-${side.toLowerCase()}`;
+    label.appendChild(select);
+    field.appendChild(label);
+    row.appendChild(field);
+    populateMappingFolders(select, side, mapping?.[`folder${side}`]);
   }
+  const remove = createButton("btn btn-danger btn-sm", i18n("btnRemoveMapping"));
+  remove.type = "button";
+  remove.addEventListener("click", () => row.remove());
+  row.appendChild(remove);
+  els.mappingRows.appendChild(row);
+  updateFolderAvailability();
+}
 
-  const account = accountsData.find((a) => a.id === accountId);
+function populateMappingFolders(select, side, selectedFolder = null) {
+  const selectedId = selectedFolder?.id || "";
+  const accountId = side === "A" ? els.accountA.value : els.accountB.value;
+  const account = accountsData.find((item) => item.id === accountId);
+  setPlaceholderOption(select, "selectFolder");
+  select.disabled = !account;
   if (!account) return;
-
   for (const folder of account.folders) {
-    const opt = document.createElement("option");
-    opt.value = folder.id;
-    opt.textContent = folder.path;
-    opt.dataset.folderId = folder.id;
-    opt.dataset.folderName = folder.name;
-    opt.dataset.folderSpecialUse = JSON.stringify(folder.specialUse || []);
-    opt.dataset.canAddMessages = String(folder.canAddMessages === true);
-    folderSelect.appendChild(opt);
+    const option = document.createElement("option");
+    option.value = folder.id;
+    option.textContent = folder.path;
+    option.dataset.folderName = folder.name;
+    option.dataset.folderSpecialUse = JSON.stringify(folder.specialUse || []);
+    option.dataset.canAddMessages = String(folder.canAddMessages === true);
+    select.appendChild(option);
   }
+  if (selectedId && ![...select.options].some((option) => option.value === selectedId)) {
+    const missing = document.createElement("option");
+    missing.value = selectedId;
+    missing.textContent = i18n("unavailableFolder", [selectedFolder.path || selectedFolder.name || selectedId]);
+    missing.disabled = true;
+    missing.dataset.unavailable = "true";
+    missing.dataset.savedPath = selectedFolder.path || "";
+    select.appendChild(missing);
+  }
+  select.value = selectedId;
+  if (select.value !== selectedId) select.value = "";
+}
 
-  folderSelect.disabled = false;
+function refreshMappingRows() {
+  for (const row of els.mappingRows.children) {
+    for (const side of ["A", "B"]) {
+      const select = row.querySelector(`.mapping-folder-${side.toLowerCase()}`);
+      populateMappingFolders(select, side, {
+        id: select.value,
+        path: select.selectedOptions[0]?.dataset.savedPath,
+      });
+    }
+  }
   updateFolderAvailability();
 }
 
 function updateFolderAvailability() {
   const direction = els.syncDirection.value;
-  for (const [side, select] of [["A", els.folderA], ["B", els.folderB]]) {
-    const isDestination = direction === "both" ||
-      (direction === "aToB" && side === "B") ||
-      (direction === "bToA" && side === "A");
-    for (const option of select.options) {
-      if (!option.value) continue;
-      option.disabled = isDestination && option.dataset.canAddMessages !== "true";
+  for (const row of els.mappingRows.children) {
+    for (const side of ["A", "B"]) {
+      const select = row.querySelector(`.mapping-folder-${side.toLowerCase()}`);
+      const isDestination = direction === "both" ||
+        (direction === "aToB" && side === "B") ||
+        (direction === "bToA" && side === "A");
+      for (const option of select.options) {
+        if (!option.value) continue;
+        option.disabled = isDestination && option.dataset.canAddMessages !== "true";
+      }
+      if (select.selectedOptions[0]?.disabled && select.selectedOptions[0]?.dataset.unavailable !== "true") {
+        select.value = "";
+      }
     }
-    if (select.selectedOptions[0]?.disabled) select.value = "";
   }
 }
 
@@ -264,16 +302,33 @@ function setPlaceholderOption(select, messageName) {
 // --- Save sync config ---
 
 async function saveSync() {
-  const folderAOption = els.folderA.selectedOptions[0];
-  const folderBOption = els.folderB.selectedOptions[0];
-
-  if (!folderAOption?.value || !folderBOption?.value) {
-    alert(i18n("alertSelectBothFolders"));
-    return;
+  const mappings = [];
+  const seen = new Set();
+  for (const row of els.mappingRows.children) {
+    const folderAOption = row.querySelector(".mapping-folder-a").selectedOptions[0];
+    const folderBOption = row.querySelector(".mapping-folder-b").selectedOptions[0];
+    if (!folderAOption?.value || !folderBOption?.value || folderAOption.disabled || folderBOption.disabled) {
+      alert(i18n("alertSelectBothFolders"));
+      return;
+    }
+    if (folderAOption.value === folderBOption.value) {
+      alert(i18n("errorFoldersIdentical"));
+      return;
+    }
+    const key = JSON.stringify([folderAOption.value, folderBOption.value]);
+    if (seen.has(key)) {
+      alert(i18n("errorDuplicateMapping"));
+      return;
+    }
+    seen.add(key);
+    mappings.push({
+      ...(row.dataset.mappingId ? { id: row.dataset.mappingId } : {}),
+      folderA: selectedFolderDescriptor(folderAOption),
+      folderB: selectedFolderDescriptor(folderBOption),
+    });
   }
-
-  if (folderAOption.value === folderBOption.value) {
-    alert(i18n("errorFoldersIdentical"));
+  if (!mappings.length) {
+    alert(i18n("errorNoFolders"));
     return;
   }
 
@@ -286,21 +341,10 @@ async function saveSync() {
   }
 
   const config = {
-    name: els.syncName.value.trim() || `${folderAOption.dataset.folderName} ↔ ${folderBOption.dataset.folderName}`,
+    name: els.syncName.value.trim() || `${mappings[0].folderA.name} ↔ ${mappings[0].folderB.name}`,
     accountA: els.accountA.value,
     accountB: els.accountB.value,
-    folderA: {
-      id: folderAOption.value,
-      name: folderAOption.dataset.folderName,
-      path: folderAOption.textContent,
-      specialUse: JSON.parse(folderAOption.dataset.folderSpecialUse || "[]"),
-    },
-    folderB: {
-      id: folderBOption.value,
-      name: folderBOption.dataset.folderName,
-      path: folderBOption.textContent,
-      specialUse: JSON.parse(folderBOption.dataset.folderSpecialUse || "[]"),
-    },
+    mappings,
     direction: els.syncDirection.value,
     autoSyncEnabled: els.autoSyncEnabled.checked,
     autoSyncInterval,
@@ -321,6 +365,15 @@ async function saveSync() {
   }
 
   showListView();
+}
+
+function selectedFolderDescriptor(option) {
+  return {
+    id: option.value,
+    name: option.dataset.folderName,
+    path: option.textContent,
+    specialUse: JSON.parse(option.dataset.folderSpecialUse || "[]"),
+  };
 }
 
 // --- Render sync list ---
@@ -367,18 +420,24 @@ function createSyncCard(config, state) {
   header.appendChild(autoSyncBadge);
 
   const folders = document.createElement("div");
-  folders.className = "sync-card-folders";
-
-  const endpointA = document.createElement("span");
-  endpointA.textContent = syncEndpoint(config, "A");
-
-  const arrow = document.createElement("span");
-  arrow.className = "sync-card-arrow";
-  arrow.textContent = directionArrow(config.direction);
-
-  const endpointB = document.createElement("span");
-  endpointB.textContent = syncEndpoint(config, "B");
-  folders.append(endpointA, arrow, endpointB);
+  folders.className = "sync-card-mappings";
+  for (const [index, mapping] of (config.mappings || []).entries()) {
+    const pair = document.createElement("div");
+    pair.className = "sync-card-folders";
+    pair.dataset.mappingId = mapping.id;
+    const endpointA = document.createElement("span");
+    endpointA.textContent = syncEndpoint(config, mapping, "A");
+    const arrow = document.createElement("span");
+    arrow.className = "sync-card-arrow";
+    arrow.textContent = directionArrow(config.direction);
+    const endpointB = document.createElement("span");
+    endpointB.textContent = syncEndpoint(config, mapping, "B");
+    pair.append(endpointA, arrow, endpointB);
+    const pairResult = document.createElement("div");
+    pairResult.className = "sync-mapping-result";
+    pairResult.dataset.mappingIndex = String(index);
+    folders.append(pair, pairResult);
+  }
 
   const status = document.createElement("div");
   status.className = "sync-card-status";
@@ -487,8 +546,27 @@ function updateSyncCardStatus(card, state) {
     }
   }
   const result = card.querySelector(".sync-card-result");
+  if (state.folderInvalid && state.error) resultText += ` | ${state.error}`;
   result.classList.toggle("hidden", !resultText);
   result.textContent = resultText;
+  for (const pairResult of card.querySelectorAll(".sync-mapping-result")) {
+    const index = Number(pairResult.dataset.mappingIndex);
+    const mappingId = card.querySelectorAll(".sync-card-folders")[index]?.dataset.mappingId;
+    const mapping = state.lastResult?.mappings?.find((item) => item.id === mappingId);
+    if (state.running) {
+      const current = state.progress?.mappingIndex === index + 1;
+      pairResult.classList.toggle("hidden", !current);
+      pairResult.textContent = current ? i18n("statusSyncing") : "";
+      pairResult.classList.remove("mapping-error");
+      continue;
+    }
+    pairResult.classList.toggle("hidden", !mapping);
+    if (!mapping) continue;
+    const status = mapping.errors?.length ? (mapping.fatal ? i18n("statusFailed") : i18n("statusPartialFailure")) : i18n("statusSuccess");
+    pairResult.textContent = `${status} · A→B ${mapping.copiedAtoB} · B→A ${mapping.copiedBtoA}` +
+      (mapping.errors?.length ? ` · ${mapping.errors[0]}` : "");
+    pairResult.classList.toggle("mapping-error", !!mapping.errors?.length);
+  }
 
   for (const button of card.querySelectorAll(".btn-sync, .btn-edit, .btn-delete")) {
     button.disabled = !!state.running;
@@ -515,9 +593,9 @@ function createButton(className, label) {
   return button;
 }
 
-function syncEndpoint(config, side) {
+function syncEndpoint(config, mapping, side) {
   const accountId = side === "A" ? config.accountA : config.accountB;
-  const folder = side === "A" ? config.folderA : config.folderB;
+  const folder = side === "A" ? mapping.folderA : mapping.folderB;
   const account = accountsData.find((item) => item.id === accountId);
   const accountLabel = account ? `${account.name} (${account.type})` : accountId || "?";
   return `${accountLabel} / ${folder?.path || folder?.name || "?"}`;
@@ -533,10 +611,11 @@ function getProgressView(progress) {
     };
   }
 
+  const mappingText = progress.mappingCount ? `${i18n("mappingProgress", [progress.mappingIndex, progress.mappingCount])} · ` : "";
   if (progress.phase === "prepare") {
     return {
       visible: true,
-      text: i18n("progressPreparing"),
+      text: mappingText + i18n("progressPreparing"),
       count: "",
       percent: 0,
     };
@@ -550,7 +629,7 @@ function getProgressView(progress) {
 
   return {
     visible: true,
-    text: progress.direction ? directionLabel(progress.direction) : i18n("statusSyncing"),
+    text: mappingText + (progress.direction ? directionLabel(progress.direction) : i18n("statusSyncing")),
     count: progress.failed ? i18n("progressCountWithErrors", [completed, total, remaining, progress.failed]) : i18n("progressCount", [completed, total, remaining]),
     percent,
   };
