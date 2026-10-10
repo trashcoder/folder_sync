@@ -94,3 +94,18 @@ test("rejects edit during a run and prevents a sync from racing a pending edit",
   await edit;
   assert.equal(name, "Changed");
 });
+
+test("lock ownership survives changes to the displayed running flag", async () => {
+  const state = { running: false };
+  let release;
+  const paused = new Promise((resolve) => { release = resolve; });
+  const first = runExclusive(state, async () => {
+    state.running = false;
+    await paused;
+  });
+  assert.deepEqual(await runExclusive(state, async () => "overlap"), { started: false });
+  assert.deepEqual(await runMutationExclusive(state, async () => "edit"), { started: false });
+  release();
+  await first;
+  assert.equal((await runExclusive(state, async () => "next")).value, "next");
+});

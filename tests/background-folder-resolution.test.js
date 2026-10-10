@@ -16,12 +16,21 @@ function clone(value) {
 }
 
 function loadRuntime({ configs = [], capabilities = {}, specialUses = {},
-  extraFoldersA = [], extraFoldersB = [], messagesByFolder = {}, failedDestinations = [] } = {}) {
+  extraFoldersA = [], extraFoldersB = [], messagesByFolder = {}, failedDestinations = [], beforeStorageSet = async () => {},
+  beforeMessageList = async () => {} } = {}) {
   let runtimeListener;
   let alarmListener;
   const alarmNames = new Set();
   const copies = [];
   const event = { addListener() {} };
+  const events = {};
+  for (const name of ["onMoved", "onRenamed", "onDeleted", "onCreated", "onUpdated"]) {
+    let listener;
+    events[name] = {
+      addListener(value) { listener = value; },
+      emit(...args) { return listener?.(...args); },
+    };
+  }
   const storage = { syncConfigs: clone(configs) };
   const accounts = [
     {
@@ -59,6 +68,7 @@ function loadRuntime({ configs = [], capabilities = {}, specialUses = {},
         return result;
       },
       async set(values) {
+        await beforeStorageSet(values);
         for (const [key, value] of Object.entries(values)) storage[key] = clone(value);
       },
       async remove(key) { delete storage[key]; },
@@ -75,12 +85,13 @@ function loadRuntime({ configs = [], capabilities = {}, specialUses = {},
       getFolderCapabilities: async (folderId) => ({
         canAddMessages: capabilities[folderId] === true,
       }),
-      onMoved: event,
-      onRenamed: event,
-      onDeleted: event,
+      ...events,
     },
     messages: {
-      list: async (folderId) => ({ messages: clone(messagesByFolder[folderId] || []) }),
+      list: async (folderId) => {
+        await beforeMessageList(folderId);
+        return { messages: clone(messagesByFolder[folderId] || []) };
+      },
       continueList: async () => ({ messages: [] }),
       copy: async (ids, folderId) => {
         if (failedDestinations.includes(folderId)) throw new Error("copy rejected");
@@ -111,6 +122,8 @@ function loadRuntime({ configs = [], capabilities = {}, specialUses = {},
 
   return {
     storage,
+    accounts,
+    events,
     copies,
     alarmNames,
     emitAlarm(syncId) { return alarmListener({ name: `foldersync-auto-sync-${syncId}` }); },
@@ -204,7 +217,7 @@ test("migrates legacy folder descriptors only after both folders resolve", async
     ...config("both"),
     id: "legacy",
     mappings: [{
-      folderA: { id: "old-a", name: "Folder A", path: "/Moved/Folder A", type: "inbox" },
+      folderA: { id: "old-a", name: "Folder A", path: "/Folder A", type: "inbox" },
       folderB: { id: "old-b", name: "Folder B", path: "/Folder B" },
     }],
   };
@@ -388,4 +401,185 @@ test("editing mappings preserves the job alarm and deleting removes job data", a
   assert.equal(runtime.storage.syncConfigs.length, 0);
   assert.equal(runtime.alarmNames.size, 0);
   assert.equal(runtime.storage[`syncLog_${saved.id}`], undefined);
+});
+
+function deferred() {
+  let resolve;
+  const promise = new Promise((done) => { resolve = done; });
+  return { promise, resolve };
+}
+
+test("concurrent additions retain both jobs and their alarms", async () => {
+  const runtime = loadRuntime({ capabilities: { "current-a": true, "current-b": true } });
+  const saved = await Promise.all(["First", "Second"].map((name) => runtime.send({
+    action: "addConfig", config: { ...config("both"), name, autoSyncEnabled: true },
+  })));
+  assert.ok(saved.every((item) => !item.error));
+  assert.deepEqual(runtime.storage.syncConfigs.map((item) => item.name), ["First", "Second"]);
+  assert.equal(runtime.alarmNames.size, 2);
+});
+
+test("concurrent edit and deletion of different jobs do not overwrite each other", async () => {
+  const runtime = loadRuntime({ configs: [
+    { ...config("both"), id: "edit" }, { ...config("both"), id: "delete" },
+  ], capabilities: { "current-a": true, "current-b": true } });
+  const configs = await runtime.send({ action: "getConfigs" });
+  const responses = await Promise.all([
+    runtime.send({ action: "updateConfig", config: { ...configs[0], name: "Updated" } }),
+    runtime.send({ action: "deleteConfig", syncId: "delete" }),
+  ]);
+  assert.ok(responses.every((response) => response.ok));
+  assert.deepEqual(runtime.storage.syncConfigs.map(({ id, name }) => ({ id, name })),
+    [{ id: "edit", name: "Updated" }]);
+});
+
+test("a failed write does not block subsequent queued configuration changes", async () => {
+  let fail = true;
+  const runtime = loadRuntime({ capabilities: { "current-a": true, "current-b": true },
+    beforeStorageSet: async (values) => {
+      if (values.syncConfigs?.some((item) => item.name === "Fail") && fail) {
+        fail = false;
+        throw new Error("storage unavailable");
+      }
+    },
+  });
+  const responses = await Promise.all(["Fail", "Keep"].map((name) => runtime.send({
+    action: "addConfig", config: { ...config("both"), name },
+  })));
+  assert.match(responses[0].error, /storage unavailable/);
+  assert.equal(responses[1].name, "Keep");
+  assert.deepEqual(runtime.storage.syncConfigs.map((item) => item.name), ["Keep"]);
+});
+
+test("a running multi-mapping job cannot resurrect another deleted job", async () => {
+  const scanning = deferred();
+  const release = deferred();
+  let paused = false;
+  const setup = threeMappingSetup();
+  // Session IDs need refreshing on later mappings, which forces config writes.
+  setup.mappings[1].folderA.id = "previous-a2";
+  const runtime = loadRuntime({ ...setup, configs: [
+    { ...config("aToB"), id: "running", mappings: setup.mappings },
+    { ...config("both"), id: "delete" },
+  ], beforeMessageList: async () => {
+    if (!paused) {
+      paused = true;
+      scanning.resolve();
+      await release.promise;
+    }
+  } });
+  const run = runtime.send({ action: "startSync", syncId: "running" });
+  await scanning.promise;
+  assert.equal((await runtime.send({ action: "deleteConfig", syncId: "delete" })).ok, true);
+  release.resolve();
+  assert.equal((await run).fatal, false);
+  assert.deepEqual(runtime.storage.syncConfigs.map((item) => item.id), ["running"]);
+});
+
+for (const eventName of ["onRenamed", "onMoved"]) {
+  test(`${eventName} only updates references in the affected account`, async () => {
+    const existing = { ...config("both"), id: "job" };
+    existing.mappings[0].folderB.path = "/Folder A";
+    const runtime = loadRuntime({ configs: [existing],
+      capabilities: { "current-a": true, "current-b": true, renamed: true },
+    });
+    runtime.accounts[1].rootFolder.subFolders[0].path = "/Folder A";
+    const [saved] = await runtime.send({ action: "getConfigs" });
+    const original = { ...runtime.accounts[0].rootFolder.subFolders[0], accountId: "account-a" };
+    const updated = { ...original, id: "renamed", name: "Renamed", path: "/Renamed" };
+    runtime.accounts[0].rootFolder.subFolders[0] = updated;
+    await runtime.events[eventName].emit(original, updated);
+    const mapping = runtime.storage.syncConfigs[0].mappings[0];
+    assert.equal(mapping.folderA.path, "/Renamed");
+    assert.deepEqual(mapping.folderB, saved.mappings[0].folderB);
+    const result = await runtime.send({ action: "startSync", syncId: "job" });
+    assert.equal(result.fatal, false, JSON.stringify(result));
+  });
+}
+
+test("deleting a folder does not invalidate another account with the same path", async () => {
+  const runtime = loadRuntime({ configs: [{ ...config("both"), id: "job" }],
+    capabilities: { "current-a": true, "current-b": true },
+  });
+  await runtime.send({ action: "getConfigs" });
+  await runtime.events.onDeleted.emit({ id: "unrelated", accountId: "other-account", path: "/Folder A" });
+  assert.equal((await runtime.send({ action: "getStatus" })).job.folderInvalid, false);
+  await runtime.events.onDeleted.emit({ id: "current-a", accountId: "account-a", path: "/Folder A" });
+  assert.equal((await runtime.send({ action: "getStatus" })).job.folderInvalid, true);
+});
+
+test("an observed move across accounts leaves the job unavailable instead of changing its account pair", async () => {
+  const runtime = loadRuntime({ configs: [{ ...config("both"), id: "job" }],
+    capabilities: { "current-a": true, "current-b": true, moved: true },
+  });
+  await runtime.send({ action: "getConfigs" });
+  const original = { ...runtime.accounts[0].rootFolder.subFolders[0], accountId: "account-a" };
+  const moved = { ...original, id: "moved", accountId: "account-b", path: "/Moved" };
+  runtime.accounts[0].rootFolder.subFolders = [];
+  runtime.accounts[1].rootFolder.subFolders.push(moved);
+  await runtime.events.onMoved.emit(original, moved);
+  assert.equal(runtime.storage.syncConfigs[0].accountA, "account-a");
+  assert.equal(runtime.storage.syncConfigs[0].mappings[0].folderA.path, original.path);
+  const result = await runtime.send({ action: "startSync", syncId: "job" });
+  assert.equal(result.fatal, true);
+  assert.equal(runtime.copies.length, 0);
+});
+
+test("a missing source is not replaced by a same-named folder during sync", async () => {
+  const existing = { ...config("aToB"), id: "missing" };
+  existing.mappings[0].folderA.path = "/Deleted/Folder A";
+  const runtime = loadRuntime({ configs: [existing],
+    capabilities: { "current-a": true, "current-b": true },
+    messagesByFolder: { "current-a": [{ id: 1, headerMessageId: "unique@example.test" }] },
+  });
+  const result = await runtime.send({ action: "startSync", syncId: "missing" });
+  assert.equal(result.fatal, true);
+  assert.equal(runtime.copies.length, 0);
+  assert.equal(runtime.storage.syncConfigs[0].mappings[0].folderA.path, "/Deleted/Folder A");
+});
+
+test("final persistence retains the sync lock and blocks edits and deletions", async () => {
+  const finishing = deferred();
+  const release = deferred();
+  let pause = true;
+  const runtime = loadRuntime({ configs: [{ ...config("both"), id: "job" }],
+    capabilities: { "current-a": true, "current-b": true },
+    beforeStorageSet: async (values) => {
+      if (values.syncStates?.job?.lastResult && !values.syncStates.job.running && pause) {
+        pause = false;
+        finishing.resolve();
+        await release.promise;
+      }
+    },
+  });
+  const [saved] = await runtime.send({ action: "getConfigs" });
+  const first = runtime.send({ action: "startSync", syncId: "job" });
+  await finishing.promise;
+  assert.equal((await runtime.send({ action: "getStatus" })).job.running, true);
+  assert.match((await runtime.send({ action: "startSync", syncId: "job" })).error, /errorSyncRunning/);
+  assert.match((await runtime.send({ action: "updateConfig", config: saved })).error, /errorConfigLocked/);
+  assert.match((await runtime.send({ action: "deleteConfig", syncId: "job" })).error, /errorConfigLocked/);
+  release.resolve();
+  assert.equal((await first).fatal, false);
+  assert.equal((await runtime.send({ action: "getStatus" })).job.running, false);
+  assert.equal(runtime.storage.syncStates.job.running, false);
+});
+
+test("a folder rename racing an addition retains both the new job and updated reference", async () => {
+  const runtime = loadRuntime({ configs: [{ ...config("both"), id: "original" }],
+    capabilities: { "current-a": true, "current-b": true, renamed: true },
+  });
+  await runtime.send({ action: "getConfigs" });
+  const original = { ...runtime.accounts[0].rootFolder.subFolders[0], accountId: "account-a" };
+  const renamed = { ...original, id: "renamed", path: "/Renamed", name: "Renamed" };
+  runtime.accounts[0].rootFolder.subFolders[0] = renamed;
+  const added = config("both");
+  added.mappings[0].folderA = renamed;
+  const [, saved] = await Promise.all([
+    runtime.events.onRenamed.emit(original, renamed),
+    runtime.send({ action: "addConfig", config: added }),
+  ]);
+  assert.equal(saved.error, undefined);
+  assert.equal(runtime.storage.syncConfigs.length, 2);
+  assert.ok(runtime.storage.syncConfigs.every((item) => item.mappings[0].folderA.path === "/Renamed"));
 });

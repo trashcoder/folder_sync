@@ -326,6 +326,17 @@ function flattenFolders(folders, prefix = "") {
 
 // --- Config persistence (multi-sync) ---
 
+// Serialize every read/modify/write of the shared syncConfigs array, including
+// folder events and reference updates from running jobs. A failure must not
+// poison the queue for subsequent operations.
+let configWriteQueue = Promise.resolve();
+
+function withConfigWrite(operation) {
+  const result = configWriteQueue.then(operation);
+  configWriteQueue = result.catch(() => {});
+  return result;
+}
+
 async function saveConfigs(configs) {
   await messenger.storage.local.set({ syncConfigs: configs });
 }
@@ -451,17 +462,23 @@ async function validateConfig(config) {
   return { ...config, mappings };
 }
 
-async function resolveAndPersistMapping(config, mapping, configs, accounts) {
-  const resolved = await resolveMappingFolders(config, mapping, accounts);
-  const changed = ["A", "B"].some((side) =>
-    JSON.stringify(mapping[`folder${side}`]) !== JSON.stringify(FolderResolver.descriptor(resolved[`folder${side}`])));
-  if (changed) {
+async function resolveAndPersistMapping(config, mapping) {
+  return await withConfigWrite(async () => {
+    const configs = await loadConfigs();
+    const currentConfig = configs.find((item) => item.id === config.id);
+    const currentMapping = currentConfig?.mappings.find((item) => item.id === mapping.id);
+    if (!currentMapping) throw new Error(messenger.i18n.getMessage("errorNoFolders"));
+    const resolved = await resolveMappingFolders(currentConfig, currentMapping);
+    const changed = ["A", "B"].some((side) =>
+      JSON.stringify(currentMapping[`folder${side}`]) !== JSON.stringify(FolderResolver.descriptor(resolved[`folder${side}`])));
     for (const side of ["A", "B"]) {
-      mapping[`folder${side}`] = FolderResolver.descriptor(resolved[`folder${side}`]);
+      const descriptor = FolderResolver.descriptor(resolved[`folder${side}`]);
+      currentMapping[`folder${side}`] = descriptor;
+      mapping[`folder${side}`] = descriptor;
     }
-    await saveConfigs(configs);
-  }
-  return resolved;
+    if (changed) await saveConfigs(configs);
+    return resolved;
+  });
 }
 
 async function refreshConfigFolderReferences(configs) {
@@ -553,9 +570,9 @@ async function startSyncExclusive(syncId) {
   const state = getSyncState(syncId);
   return await SyncLock.runExclusive(state, async () => {
     SyncStateStore.start(state, new Date().toISOString());
-    await persistSyncStates();
     try {
       try {
+        await persistSyncStates();
         const configs = await loadConfigs();
         const config = configs.find((candidate) => candidate.id === syncId);
         if (!config || !config.mappings?.length) {
@@ -565,7 +582,7 @@ async function startSyncExclusive(syncId) {
           copiedAtoB: 0, copiedBtoA: 0, errors: [], fatal: false, mappings: [],
         };
         folderValidationErrors.delete(syncId);
-        const accounts = await getAccountsWithFolders(true);
+        await getAccountsWithFolders(true);
         for (const [index, mapping] of config.mappings.entries()) {
           const label = `[${index + 1}/${config.mappings.length} ${mapping.folderA?.name || "A"} ↔ ${mapping.folderB?.name || "B"}] `;
           setSyncProgress(state, {
@@ -574,7 +591,7 @@ async function startSyncExclusive(syncId) {
           });
           let pairResult;
           try {
-            const folders = await resolveAndPersistMapping(config, mapping, configs, accounts);
+            const folders = await resolveAndPersistMapping(config, mapping);
             pairResult = await syncFolders(syncId, folders.folderA, folders.folderB, config.direction || "both", label);
           } catch (err) {
             pairResult = { copiedAtoB: 0, copiedBtoA: 0, errors: [err.message], fatal: true };
@@ -630,6 +647,13 @@ messenger.alarms.onAlarm.addListener(async (alarm) => {
   await startSyncExclusive(syncId);
 });
 
+function referencesFolder(config, side, stored, folder) {
+  if (!stored) return false;
+  return stored.id === folder.id ||
+    (folder.accountId === config[`account${side}`] &&
+      !!stored.path && stored.path === folder.path);
+}
+
 async function updateFolderReferences(originalFolder, updatedFolder) {
   const configs = await loadConfigs();
   let changed = false;
@@ -637,7 +661,8 @@ async function updateFolderReferences(originalFolder, updatedFolder) {
     for (const mapping of config.mappings) {
       for (const side of ["A", "B"]) {
         const stored = mapping[`folder${side}`];
-        if (stored && (stored.id === originalFolder.id || stored.path === originalFolder.path)) {
+        if (referencesFolder(config, side, stored, originalFolder) &&
+            (!updatedFolder.accountId || updatedFolder.accountId === config[`account${side}`])) {
           mapping[`folder${side}`] = FolderResolver.descriptor(updatedFolder);
           changed = true;
         }
@@ -649,14 +674,17 @@ async function updateFolderReferences(originalFolder, updatedFolder) {
 
 async function refreshFolderStructure() {
   invalidateAccountsWithFolders();
-  const configs = await loadConfigs();
-  await refreshConfigFolderReferences(configs);
+  await withConfigWrite(async () => {
+    await refreshConfigFolderReferences(await loadConfigs());
+  });
 }
 
 async function handleFolderReferenceUpdate(originalFolder, updatedFolder) {
   invalidateAccountsWithFolders();
-  await updateFolderReferences(originalFolder, updatedFolder);
-  await refreshConfigFolderReferences(await loadConfigs());
+  await withConfigWrite(async () => {
+    await updateFolderReferences(originalFolder, updatedFolder);
+    await refreshConfigFolderReferences(await loadConfigs());
+  });
 }
 
 messenger.accounts?.onCreated?.addListener(refreshFolderStructure);
@@ -669,21 +697,23 @@ messenger.folders.onMoved.addListener(handleFolderReferenceUpdate);
 messenger.folders.onRenamed.addListener(handleFolderReferenceUpdate);
 messenger.folders.onDeleted.addListener(async (deletedFolder) => {
   invalidateAccountsWithFolders();
-  const configs = await loadConfigs();
-  for (const config of configs) {
-    for (const [index, mapping] of config.mappings.entries()) {
-      for (const side of ["A", "B"]) {
-        const stored = mapping[`folder${side}`];
-        if (stored && (stored.id === deletedFolder.id || stored.path === deletedFolder.path)) {
-          const state = getSyncState(config.id);
-          const error = `${index + 1}: ${folderResolutionError(side, "not-found")}`;
-          state.error = error;
-          state.status = SyncStateStore.STATUS.FAILED;
-          folderValidationErrors.set(config.id, error);
+  await withConfigWrite(async () => {
+    const configs = await loadConfigs();
+    for (const config of configs) {
+      for (const [index, mapping] of config.mappings.entries()) {
+        for (const side of ["A", "B"]) {
+          const stored = mapping[`folder${side}`];
+          if (referencesFolder(config, side, stored, deletedFolder)) {
+            const state = getSyncState(config.id);
+            const error = `${index + 1}: ${folderResolutionError(side, "not-found")}`;
+            state.error = error;
+            state.status = SyncStateStore.STATUS.FAILED;
+            folderValidationErrors.set(config.id, error);
+          }
         }
       }
     }
-  }
+  });
 });
 
 // --- Message handling (popup <-> background) ---
@@ -701,25 +731,29 @@ async function handleRuntimeMessage(message) {
       }
 
     case "getConfigs": {
-      const configs = await loadConfigs();
-      try {
-        return await refreshConfigFolderReferences(configs);
-      } catch (err) {
-        return configs;
-      }
+      return await withConfigWrite(async () => {
+        const configs = await loadConfigs();
+        try {
+          return await refreshConfigFolderReferences(configs);
+        } catch (err) {
+          return configs;
+        }
+      });
     }
 
     case "addConfig": {
-      const configs = await loadConfigs();
-      const newConfig = await validateConfig({ ...message.config, id: generateId() });
-      const nextConfigs = [...configs, newConfig];
-      return await ConfigAlarmStore.saveWithAlarm(
-        newConfig, configs, nextConfigs, configAlarmDependencies()
-      );
+      return await withConfigWrite(async () => {
+        const configs = await loadConfigs();
+        const newConfig = await validateConfig({ ...message.config, id: generateId() });
+        const nextConfigs = [...configs, newConfig];
+        return await ConfigAlarmStore.saveWithAlarm(
+          newConfig, configs, nextConfigs, configAlarmDependencies()
+        );
+      });
     }
 
     case "updateConfig": {
-      return await mutateConfigExclusive(message.config.id, async () => {
+      return await mutateConfigExclusive(message.config.id, () => withConfigWrite(async () => {
         const configs = await loadConfigs();
         const idx = configs.findIndex((c) => c.id === message.config.id);
         if (idx === -1) return { error: "Config not found" };
@@ -730,11 +764,11 @@ async function handleRuntimeMessage(message) {
           updatedConfig, configs, nextConfigs, configAlarmDependencies()
         );
         return { ok: true };
-      });
+      }));
     }
 
     case "deleteConfig": {
-      return await mutateConfigExclusive(message.syncId, async () => {
+      return await mutateConfigExclusive(message.syncId, () => withConfigWrite(async () => {
         const configs = await loadConfigs();
         if (!configs.some((config) => config.id === message.syncId)) {
           return { error: "Config not found" };
@@ -747,7 +781,7 @@ async function handleRuntimeMessage(message) {
         folderValidationErrors.delete(message.syncId);
         await persistSyncStates();
         return { ok: true };
-      });
+      }));
     }
 
     case "startSync": {

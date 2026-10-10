@@ -26,7 +26,7 @@
   function complete(state, result, fatalError, completedAt) {
     const errors = Array.isArray(result?.errors) ? result.errors : [];
     state.status = fatalError ? STATUS.FAILED : (errors.length ? STATUS.PARTIAL_FAILURE : STATUS.SUCCESS);
-    state.running = false;
+    // Only SyncLock releases a running operation after final persistence.
     state.startedAt = null;
     state.lastSync = completedAt;
     state.lastResult = result;

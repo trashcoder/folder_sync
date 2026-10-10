@@ -17,7 +17,7 @@ A Thunderbird add-on that synchronizes email messages between folders across dif
 
 ### From file
 
-1. Download `foldersync-0.3.0.xpi` from the [releases page](https://github.com/trashcoder/folder_sync/releases)
+1. Download `foldersync-0.3.1.xpi` from the [releases page](https://github.com/trashcoder/folder_sync/releases)
 2. In Thunderbird, go to **Add-ons Manager** → **Extensions**
 3. Click the gear icon → **Install Add-on From File…**
 4. Select the downloaded `.xpi` file
@@ -30,7 +30,7 @@ cd folder_sync
 ./build.sh
 ```
 
-This creates `build/foldersync-0.3.0.xpi` ready for installation.
+This creates `build/foldersync-0.3.1.xpi` ready for installation.
 
 ## Usage
 
@@ -43,6 +43,13 @@ This creates `build/foldersync-0.3.0.xpi` ready for installation.
 7. Click **Save**, then **Start sync** to run all mappings
 
 Each mapping is processed separately. The job card shows each mapping's copied-message counts and errors; the log identifies the affected mapping. A failed mapping does not hide counts from successful mappings. Existing 0.2.x configurations are converted to one-mapping jobs on upgrade, preserving their direction and automatic sync settings.
+
+## Version 0.3.1
+
+- Scope folder rename, move, and deletion events to the correct account.
+- Serialize configuration changes so concurrent jobs and folder events cannot overwrite each other's settings.
+- Stop syncing when a saved folder path is missing instead of selecting a different folder with the same name. Re-select unavailable folders in the job editor; observed rename/move events within an account update references automatically.
+- Hold the sync lock through final logging and status persistence.
 
 ## Requirements
 

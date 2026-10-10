@@ -22,16 +22,15 @@ test("resolves a persisted path to the current session id", () => {
   assert.equal(result.matchedBy, "path");
 });
 
-test("resolves a moved folder by unique persisted characteristics", () => {
+test("rejects a different folder with the same unique name", () => {
   const result = resolveFolder(
     { id: "old", name: "Archive", path: "/Old/Archive", specialUse: [] },
     [{ id: "new", name: "Archive", path: "/New/Archive", specialUse: [] }],
   );
-  assert.equal(result.folder.path, "/New/Archive");
-  assert.equal(result.matchedBy, "characteristics");
+  assert.deepEqual(result, { error: "not-found" });
 });
 
-test("uses special-use semantics to resolve a moved folder", () => {
+test("does not substitute another folder with matching special-use semantics", () => {
   const result = resolveFolder(
     { id: "old", name: "Mail", path: "/Old/Mail", specialUse: ["sent"] },
     [
@@ -39,14 +38,12 @@ test("uses special-use semantics to resolve a moved folder", () => {
       { id: "sent", name: "Mail", path: "/System/Mail", specialUse: ["sent"] },
     ],
   );
-  assert.equal(result.folder.id, "sent");
-  assert.deepEqual(result.folder.specialUse, ["sent"]);
-  assert.equal(result.matchedBy, "characteristics");
+  assert.deepEqual(result, { error: "not-found" });
 });
 
 test("compares multiple special-use values independent of API order", () => {
   const result = resolveFolder(
-    { name: "Combined", path: "/Old/Combined", specialUse: ["trash", "inbox"] },
+    { name: "Combined", path: "/Combined", specialUse: ["trash", "inbox"] },
     [{ id: "combined", name: "Combined", path: "/Combined", specialUse: ["inbox", "trash"] }],
   );
   assert.equal(result.folder.id, "combined");
@@ -64,7 +61,7 @@ test("keeps path as the primary criterion even when special-use changed", () => 
 
 test("resolves a legacy type descriptor against specialUse", () => {
   const result = resolveFolder(
-    { id: "old", name: "Inbox", path: "/Old/Inbox", type: "inbox" },
+    { id: "old", name: "Inbox", path: "/Inbox", type: "inbox" },
     [{ id: "current", name: "Inbox", path: "/Inbox", specialUse: ["inbox"] }],
   );
   assert.equal(result.folder.id, "current");
@@ -72,7 +69,7 @@ test("resolves a legacy type descriptor against specialUse", () => {
 
 test("resolves a legacy descriptor without semantic folder metadata", () => {
   const result = resolveFolder(
-    { id: "old", name: "Normal", path: "/Old/Normal" },
+    { id: "old", name: "Normal", path: "/Normal" },
     [{ id: "current", name: "Normal", path: "/Normal", specialUse: [] }],
   );
   assert.equal(result.folder.id, "current");
@@ -90,7 +87,7 @@ test("preserves a non-writable capability on the resolved runtime folder", () =>
   assert.equal(result.folder.canAddMessages, false);
 });
 
-test("rejects an ambiguous fallback instead of choosing silently", () => {
+test("rejects missing paths even when multiple names match", () => {
   const result = resolveFolder(
     { id: "old", name: "Archive", path: "/Old/Archive", specialUse: [] },
     [
@@ -98,5 +95,5 @@ test("rejects an ambiguous fallback instead of choosing silently", () => {
       { id: "two", name: "Archive", path: "/Two/Archive", specialUse: [] },
     ],
   );
-  assert.deepEqual(result, { error: "ambiguous" });
+  assert.deepEqual(result, { error: "not-found" });
 });

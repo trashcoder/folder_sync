@@ -30,23 +30,8 @@
     if (byPath.length === 1) return { folder: runtimeFolder(byPath[0]), matchedBy: "path" };
     if (byPath.length > 1) return { error: "ambiguous" };
 
-    let candidates = folders.filter((folder) => folder.name === stored.name);
-    let storedSpecialUse = null;
-    if (Object.prototype.hasOwnProperty.call(stored, "specialUse")) {
-      storedSpecialUse = normalizeSpecialUse(stored.specialUse);
-    } else if (stored.type) {
-      // Compatibility with descriptors persisted by the Manifest V2 API.
-      storedSpecialUse = normalizeSpecialUse(stored.type);
-    }
-    if (storedSpecialUse) {
-      candidates = candidates.filter((folder) => {
-        const currentSpecialUse = normalizeSpecialUse(folder.specialUse);
-        return currentSpecialUse.length === storedSpecialUse.length &&
-          currentSpecialUse.every((value, index) => value === storedSpecialUse[index]);
-      });
-    }
-    if (candidates.length === 1) return { folder: runtimeFolder(candidates[0]), matchedBy: "characteristics" };
-    if (candidates.length > 1) return { error: "ambiguous" };
+    // Names and special-use flags do not establish identity. A missing path
+    // must be repaired explicitly or by a concrete rename/move event.
     return { error: "not-found" };
   }
 
